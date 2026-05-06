@@ -1,6 +1,6 @@
 # Just Call
 
-Boilerplate full-stack todo list with:
+Full-stack call cadence app for cold calling sessions:
 
 - `backend/`: FastAPI + PostgreSQL
 - `frontend/`: Vue 3 + Vite + Tailwind CSS
@@ -19,7 +19,7 @@ conflicts with an existing local PostgreSQL on `5432`.
 ```bash
 cd backend
 uv sync
-cp .env.example .env
+cp .env.example .env  # skip if backend/.env already exists
 uv run uvicorn app.main:app --reload
 ```
 
@@ -34,14 +34,18 @@ and private network IPs on ports `5173` to `5179`. Add more origins in
 ```bash
 cd frontend
 npm install
-cp .env.example .env
+cp .env.example .env  # skip if frontend/.env already exists
 npm run dev
 ```
 
 Frontend: `http://localhost:5173`
 
-## Todo API
+## API
 
-- `GET /todos`
-- `POST /todos` with `{ "title": "My todo" }`
-- `DELETE /todos/{todo_id}`
+- `GET /health`
+- `GET /contacts`
+- `POST /contacts`
+- `PATCH /contacts/{contact_id}`
+- `DELETE /contacts/{contact_id}`
+- `GET /call-logs`
+- `POST /call-logs`

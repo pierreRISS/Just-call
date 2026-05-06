@@ -1,6 +1,6 @@
 # Frontend
 
-Vue 3 + Vite + Tailwind CSS boilerplate for the todo UI.
+Vue 3 + Vite + Tailwind CSS frontend for the Just Call cadence UI.
 
 ## Setup
 
