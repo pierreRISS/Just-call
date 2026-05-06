@@ -1,6 +1,6 @@
 # Backend
 
-FastAPI boilerplate for a tiny todo API backed by PostgreSQL.
+FastAPI API for the Just Call cold calling cadence app, backed by PostgreSQL.
 
 ## Setup
 
@@ -21,6 +21,9 @@ You can override it with `DATABASE_URL`.
 ## Routes
 
 - `GET /health`
-- `GET /todos`
-- `POST /todos`
-- `DELETE /todos/{todo_id}`
+- `GET /contacts`
+- `POST /contacts`
+- `PATCH /contacts/{contact_id}`
+- `DELETE /contacts/{contact_id}`
+- `GET /call-logs`
+- `POST /call-logs`
