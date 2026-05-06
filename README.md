@@ -3,7 +3,7 @@
 Boilerplate full-stack todo list with:
 
 - `backend/`: FastAPI + PostgreSQL
-- `frontend/`: Vue 3 + Vite
+- `frontend/`: Vue 3 + Vite + Tailwind CSS
 
 ## Start PostgreSQL
 
