@@ -1,25 +1,47 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-
-const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+import { Device } from '@twilio/voice-sdk'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import {
+  apiRequest,
+  clearCallLogs,
+  createCallLog,
+  createContact,
+  deleteContact,
+  updateContact,
+} from './api/client'
+import CallLogDrawer from './components/CallLogDrawer.vue'
+import SessionSetupModal from './components/SessionSetupModal.vue'
+import ToastStack from './components/ToastStack.vue'
+import CallingView from './views/CallingView.vue'
+import HistoryView from './views/HistoryView.vue'
+import ProspectsView from './views/ProspectsView.vue'
+import TwilioSettingsView from './views/TwilioSettingsView.vue'
 
 const contacts = ref([])
 const callLogs = ref([])
-const meetings = ref([])
 const completedContactIds = ref([])
-const isLoading = ref(false)
 const isClearingHistory = ref(false)
+const isStartingDirectCall = ref(false)
+const isDirectCallActive = ref(false)
 const isRunning = ref(false)
 const remainingSeconds = ref(0)
+const countdownTotalSeconds = ref(0)
 const activeCall = ref(null)
 const activeCallSeconds = ref(0)
+const selectedCallLog = ref(null)
+const activeView = ref('prospects')
+const selectedProspectId = ref(null)
+const isAddProspectOpen = ref(false)
+const isProspectDetailOpen = ref(false)
+const showSessionSetup = ref(false)
+const sessionStarted = ref(false)
+const timeoutAlert = ref(false)
 const error = ref('')
 const success = ref('')
-
-const cadence = reactive({
-  minMinutes: 10,
-  maxMinutes: 15,
-})
+const toasts = ref([])
+const microphoneStatus = ref('')
+const voiceStatus = ref('')
+const voiceConfig = ref(null)
 
 const contactForm = reactive({
   name: '',
@@ -27,31 +49,98 @@ const contactForm = reactive({
   notes: '',
 })
 
+const prospectEditForm = reactive({
+  id: null,
+  name: '',
+  phone_number: '',
+  notes: '',
+})
+
+const directCallForm = reactive({
+  phone_number: '',
+})
+
+const sessionForm = reactive({
+  goal: '',
+  callTarget: 10,
+  cadenceMinutes: 3,
+})
+
+const sessionConfig = reactive({
+  goal: '',
+  callTarget: 0,
+  cadenceMinutes: 3,
+})
+
 const callForm = reactive({
   outcome: 'answered',
   notes: '',
-  hasMeeting: false,
-  meetingAt: '',
-  meetingNotes: '',
 })
+
+const dashboardViews = [
+  { id: 'prospects', label: 'Prospects' },
+  { id: 'calling', label: 'Calling' },
+  { id: 'calls', label: 'Appels' },
+  { id: 'settings', label: 'Settings' },
+]
 
 let countdownTimer = null
 let callTimer = null
 let audioContext = null
+let voiceDevice = null
+let voiceCall = null
+let toastId = 0
 
 const pendingContacts = computed(() =>
   contacts.value.filter((contact) => !completedContactIds.value.includes(contact.id)),
 )
 
 const totalCallsToday = computed(() => callLogs.value.length)
-const totalMeetings = computed(() => meetings.value.length)
 const conversionRate = computed(() => {
-  if (!callLogs.value.length) return 0
-  return Math.round((meetings.value.length / callLogs.value.length) * 100)
+  if (!contacts.value.length) return 0
+  return Math.round((callLogs.value.length / contacts.value.length) * 100)
 })
 
 const countdownLabel = computed(() => formatDuration(remainingSeconds.value))
 const activeCallDuration = computed(() => formatDuration(activeCallSeconds.value))
+const isVoiceReady = computed(() => Boolean(voiceConfig.value?.is_ready))
+const missingVoiceConfig = computed(() => voiceConfig.value?.missing || [])
+const completedContacts = computed(() =>
+  contacts.value.filter((contact) => completedContactIds.value.includes(contact.id)),
+)
+const selectedProspect = computed(
+  () => contacts.value.find((contact) => contact.id === selectedProspectId.value) || contacts.value[0] || null,
+)
+const currentProspect = computed(() => pendingContacts.value[0] || null)
+const timerProgress = computed(() => {
+  if (!countdownTotalSeconds.value) return 0
+  return Math.max(0, Math.min(100, (remainingSeconds.value / countdownTotalSeconds.value) * 100))
+})
+const timerTone = computed(() => {
+  if (!isRunning.value || activeCall.value || !remainingSeconds.value) return 'calm'
+  if (remainingSeconds.value <= 5) return 'danger'
+  if (remainingSeconds.value <= 30) return 'urgent'
+  if (remainingSeconds.value <= 60) return 'strong-warning'
+  if (remainingSeconds.value <= 120) return 'warning'
+  return 'calm'
+})
+const timerPanelClass = computed(() => {
+  if (timerTone.value === 'danger') return 'bg-red-50 text-red-950'
+  if (timerTone.value === 'urgent') return 'bg-orange-50 text-orange-950'
+  if (timerTone.value === 'strong-warning') return 'bg-amber-100 text-amber-950'
+  if (timerTone.value === 'warning') return 'bg-yellow-50 text-yellow-950'
+  return 'bg-white text-slate-950'
+})
+const timerBarClass = computed(() => {
+  if (timerTone.value === 'danger') return 'bg-red-600'
+  if (timerTone.value === 'urgent') return 'bg-orange-600'
+  if (timerTone.value === 'strong-warning') return 'bg-amber-500'
+  if (timerTone.value === 'warning') return 'bg-yellow-400'
+  return 'bg-blue-600'
+})
+const shouldShakeInterface = computed(
+  () => remainingSeconds.value > 0 && remainingSeconds.value <= 5 && isRunning.value && !activeCall.value,
+)
 
 function clearCountdown() {
   if (countdownTimer) {
@@ -82,29 +171,9 @@ function formatDateTime(value) {
   }).format(new Date(value))
 }
 
-function toDateTimeLocalValue(date) {
-  const timezoneOffset = date.getTimezoneOffset() * 60000
-  return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 16)
-}
-
-function defaultMeetingDateTime() {
-  const date = new Date()
-  date.setDate(date.getDate() + 1)
-  date.setMinutes(0, 0, 0)
-  date.setHours(date.getHours() + 1)
-  return toDateTimeLocalValue(date)
-}
-
-function normalizeCadence() {
-  const min = Math.max(0.1, Number(cadence.minMinutes) || 0.1)
-  const max = Math.max(min, Number(cadence.maxMinutes) || min)
-  cadence.minMinutes = Number(min.toFixed(2))
-  cadence.maxMinutes = Number(max.toFixed(2))
-}
-
 function maxDelaySeconds() {
-  normalizeCadence()
-  return Math.ceil(cadence.maxMinutes * 60)
+  const cadenceMinutes = Math.max(0.1, Number(sessionConfig.cadenceMinutes) || 0.1)
+  return Math.ceil(cadenceMinutes * 60)
 }
 
 function outcomeLabel(outcome) {
@@ -121,52 +190,47 @@ function outcomeLabel(outcome) {
 function resetCallForm() {
   callForm.outcome = 'answered'
   callForm.notes = ''
-  callForm.hasMeeting = false
-  callForm.meetingAt = defaultMeetingDateTime()
-  callForm.meetingNotes = ''
 }
 
-async function request(path, options = {}) {
-  const response = await fetch(`${apiUrl}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  })
-
-  if (!response.ok) {
-    let message = 'Une erreur est survenue.'
-    try {
-      const payload = await response.json()
-      message = payload.detail || message
-    } catch {
-      message = response.statusText || message
-    }
-    throw new Error(message)
-  }
-
-  if (response.status === 204) return null
-  return response.json()
+function dismissToast(id) {
+  toasts.value = toasts.value.filter((toast) => toast.id !== id)
 }
+
+function pushToast(type, message) {
+  const id = ++toastId
+  toasts.value = [...toasts.value, { id, type, message }]
+  window.setTimeout(() => dismissToast(id), type === 'error' ? 6500 : 4000)
+}
+
+watch(error, (message) => {
+  if (message) pushToast('error', message)
+})
+
+watch(success, (message) => {
+  if (message) pushToast('success', message)
+})
 
 async function fetchData() {
-  isLoading.value = true
   error.value = ''
 
   try {
-    const [contactsPayload, callLogsPayload, meetingsPayload] = await Promise.all([
-      request('/contacts'),
-      request('/call-logs'),
-      request('/meetings'),
+    const [contactsPayload, callLogsPayload] = await Promise.all([
+      apiRequest('/contacts'),
+      apiRequest('/call-logs'),
     ])
     contacts.value = contactsPayload
     callLogs.value = callLogsPayload
-    meetings.value = meetingsPayload
   } catch (requestError) {
     error.value = requestError.message
-  } finally {
-    isLoading.value = false
+  }
+}
+
+async function fetchVoiceConfig() {
+  try {
+    voiceConfig.value = await apiRequest('/voice/config')
+  } catch (requestError) {
+    voiceConfig.value = null
+    error.value = requestError.message
   }
 }
 
@@ -178,23 +242,204 @@ async function addContact() {
   success.value = ''
 
   try {
-    const createdContact = await request('/contacts', {
-      method: 'POST',
-      body: JSON.stringify({
-        name: contactForm.name.trim() || null,
-        phone_number: phoneNumber,
-        notes: contactForm.notes.trim() || null,
-      }),
+    const createdContact = await createContact({
+      name: contactForm.name.trim() || null,
+      phone_number: phoneNumber,
+      notes: contactForm.notes.trim() || null,
     })
 
     contacts.value = [...contacts.value, createdContact]
     contactForm.name = ''
     contactForm.phone_number = ''
     contactForm.notes = ''
+    isAddProspectOpen.value = false
     success.value = 'Contact ajouté.'
   } catch (requestError) {
     error.value = requestError.message
   }
+}
+
+function openAddProspect() {
+  isAddProspectOpen.value = true
+  isProspectDetailOpen.value = false
+}
+
+function openProspectDetail(contactId) {
+  const contact = contacts.value.find((item) => item.id === contactId)
+  if (!contact) return
+
+  selectedProspectId.value = contactId
+  prospectEditForm.id = contact.id
+  prospectEditForm.name = contact.name || ''
+  prospectEditForm.phone_number = contact.phone_number
+  prospectEditForm.notes = contact.notes || ''
+  isProspectDetailOpen.value = true
+  isAddProspectOpen.value = false
+}
+
+async function saveProspect() {
+  if (!prospectEditForm.id) return
+
+  error.value = ''
+  success.value = ''
+
+  try {
+    const updatedContact = await updateContact(prospectEditForm.id, {
+      name: prospectEditForm.name.trim() || null,
+      phone_number: prospectEditForm.phone_number.trim(),
+      notes: prospectEditForm.notes.trim() || null,
+    })
+
+    contacts.value = contacts.value.map((contact) =>
+      contact.id === updatedContact.id ? updatedContact : contact,
+    )
+    success.value = 'Prospect mis à jour.'
+  } catch (requestError) {
+    error.value = requestError.message
+  }
+}
+
+async function requestMicrophoneAccess() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Ton navigateur ne permet pas l'accès au micro sur cette page.")
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    stream.getTracks().forEach((track) => track.stop())
+    microphoneStatus.value = 'Micro autorisé.'
+  } catch {
+    microphoneStatus.value = ''
+    throw new Error("Autorise le micro pour lancer l'appel.")
+  }
+}
+
+async function fetchVoiceToken() {
+  return apiRequest('/voice/token')
+}
+
+async function refreshVoiceToken() {
+  if (!voiceDevice) return
+
+  const payload = await fetchVoiceToken()
+  voiceDevice.updateToken(payload.token)
+}
+
+async function createVoiceDevice() {
+  if (voiceDevice) return voiceDevice
+
+  const payload = await fetchVoiceToken()
+  voiceDevice = new Device(payload.token, {
+    logLevel: 1,
+  })
+
+  voiceDevice.on('registered', () => {
+    voiceStatus.value = 'Téléphone web prêt.'
+  })
+  voiceDevice.on('tokenWillExpire', refreshVoiceToken)
+  voiceDevice.on('error', (deviceError) => {
+    error.value = deviceError.message || 'Erreur Twilio Voice.'
+    voiceStatus.value = ''
+  })
+
+  await voiceDevice.register()
+  return voiceDevice
+}
+
+function bindVoiceCall(call, phoneNumber) {
+  voiceCall = call
+  isDirectCallActive.value = true
+  voiceStatus.value = `Connexion vers ${phoneNumber}...`
+
+  call.on('accept', () => {
+    voiceStatus.value = `En appel avec ${phoneNumber}.`
+  })
+  call.on('disconnect', () => {
+    voiceStatus.value = 'Appel terminé.'
+    voiceCall = null
+    isDirectCallActive.value = false
+    isStartingDirectCall.value = false
+  })
+  call.on('cancel', () => {
+    voiceStatus.value = 'Appel annulé.'
+    voiceCall = null
+    isDirectCallActive.value = false
+    isStartingDirectCall.value = false
+  })
+  call.on('reject', () => {
+    voiceStatus.value = 'Appel refusé.'
+    voiceCall = null
+    isDirectCallActive.value = false
+    isStartingDirectCall.value = false
+  })
+  call.on('error', (callError) => {
+    error.value = callError.message || "L'appel a échoué."
+    voiceStatus.value = ''
+    voiceCall = null
+    isDirectCallActive.value = false
+    isStartingDirectCall.value = false
+  })
+}
+
+async function startDirectCall() {
+  const phoneNumber = directCallForm.phone_number.trim()
+  if (!phoneNumber || isStartingDirectCall.value) return false
+
+  if (!isVoiceReady.value) {
+    error.value = missingVoiceConfig.value.length
+      ? `Configuration Twilio incomplète: ${missingVoiceConfig.value.join(', ')}.`
+      : 'Configuration Twilio indisponible.'
+    return false
+  }
+
+  error.value = ''
+  success.value = ''
+  microphoneStatus.value = ''
+  isStartingDirectCall.value = true
+
+  try {
+    await requestMicrophoneAccess()
+    const device = await createVoiceDevice()
+    const call = await device.connect({
+      params: {
+        To: phoneNumber,
+      },
+    })
+
+    bindVoiceCall(call, phoneNumber)
+    success.value = ''
+    return true
+  } catch (requestError) {
+    error.value = requestError.message
+    isStartingDirectCall.value = false
+    return false
+  }
+}
+
+function hangUpDirectCall() {
+  if (!voiceCall) return
+
+  voiceCall.disconnect()
+  voiceCall = null
+  isDirectCallActive.value = false
+  voiceStatus.value = 'Appel terminé.'
+  isStartingDirectCall.value = false
+}
+
+function resetVoiceDevice() {
+  if (voiceCall) {
+    voiceCall.disconnect()
+    voiceCall = null
+  }
+  isDirectCallActive.value = false
+
+  if (voiceDevice) {
+    voiceDevice.destroy()
+    voiceDevice = null
+  }
+
+  isStartingDirectCall.value = false
+  voiceStatus.value = ''
 }
 
 async function removeContact(contactId) {
@@ -202,9 +447,7 @@ async function removeContact(contactId) {
   success.value = ''
 
   try {
-    await request(`/contacts/${contactId}`, {
-      method: 'DELETE',
-    })
+    await deleteContact(contactId)
     contacts.value = contacts.value.filter((contact) => contact.id !== contactId)
     completedContactIds.value = completedContactIds.value.filter((id) => id !== contactId)
   } catch (requestError) {
@@ -220,14 +463,8 @@ async function clearHistory() {
   isClearingHistory.value = true
 
   try {
-    await request('/call-logs', {
-      method: 'DELETE',
-    })
+    await clearCallLogs()
     callLogs.value = []
-    meetings.value = meetings.value.map((meeting) => ({
-      ...meeting,
-      call_log_id: null,
-    }))
     success.value = 'Historique supprimé.'
   } catch (requestError) {
     error.value = requestError.message
@@ -276,6 +513,7 @@ function playCallSound() {
 
 function scheduleNextCall() {
   clearCountdown()
+  timeoutAlert.value = false
 
   const nextContact = getNextContact()
   if (!nextContact) {
@@ -285,19 +523,31 @@ function scheduleNextCall() {
     return
   }
 
-  remainingSeconds.value = maxDelaySeconds()
+  countdownTotalSeconds.value = maxDelaySeconds()
+  remainingSeconds.value = countdownTotalSeconds.value
   countdownTimer = setInterval(() => {
     remainingSeconds.value -= 1
 
     if (remainingSeconds.value <= 0) {
-      startSimulatedCall()
+      clearCountdown()
+      isRunning.value = false
+      remainingSeconds.value = 0
+      timeoutAlert.value = true
+      error.value = 'Cadence ratée : appelle le prospect maintenant.'
+      playCallSound()
     }
   }, 1000)
 }
 
 function startSession() {
   if (!contacts.value.length) {
-    error.value = 'Ajoute au moins un numéro avant de démarrer.'
+    activeView.value = 'prospects'
+    error.value = 'Ajoute au moins un prospect avant de démarrer Calling.'
+    return
+  }
+
+  if (!sessionStarted.value) {
+    showSessionSetup.value = true
     return
   }
 
@@ -322,10 +572,59 @@ function resetSession() {
   clearCallTimer()
   isRunning.value = false
   remainingSeconds.value = 0
+  countdownTotalSeconds.value = 0
   activeCall.value = null
   activeCallSeconds.value = 0
   completedContactIds.value = []
+  timeoutAlert.value = false
+  sessionStarted.value = false
   resetCallForm()
+}
+
+function selectView(viewId) {
+  activeView.value = viewId
+  if (viewId === 'calling' && !sessionStarted.value) {
+    showSessionSetup.value = true
+  }
+}
+
+function startCallingSession() {
+  if (!contacts.value.length) {
+    showSessionSetup.value = false
+    activeView.value = 'prospects'
+    error.value = 'Ajoute au moins un prospect avant de lancer une session Calling.'
+    return
+  }
+
+  sessionConfig.goal = sessionForm.goal.trim() || 'Session de prospection'
+  sessionConfig.callTarget = Math.max(1, Number(sessionForm.callTarget) || 1)
+  sessionConfig.cadenceMinutes = Math.max(0.1, Number(sessionForm.cadenceMinutes) || 0.1)
+  sessionStarted.value = true
+  showSessionSetup.value = false
+  activeView.value = 'calling'
+  startSession()
+}
+
+function dismissTimeoutAlert() {
+  timeoutAlert.value = false
+  error.value = ''
+}
+
+async function startCallForProspect(contact) {
+  if (!contact) return
+  directCallForm.phone_number = contact.phone_number
+  const didStart = await startDirectCall()
+  if (didStart) {
+    startSimulatedCall()
+  }
+}
+
+function openCallLog(log) {
+  selectedCallLog.value = log
+}
+
+function closeCallLog() {
+  selectedCallLog.value = null
 }
 
 function startSimulatedCall() {
@@ -354,37 +653,13 @@ async function finishCall(outcome = callForm.outcome) {
   success.value = ''
   const contact = activeCall.value
 
-  if (callForm.hasMeeting && !callForm.meetingAt) {
-    error.value = 'Choisis une date et une heure pour la réunion.'
-    return
-  }
-
   try {
-    const createdLog = await request('/call-logs', {
-      method: 'POST',
-      body: JSON.stringify({
-        contact_id: contact.id,
-        outcome,
-        duration_seconds: activeCallSeconds.value,
-        notes: callForm.notes.trim() || null,
-      }),
+    const createdLog = await createCallLog({
+      contact_id: contact.id,
+      outcome,
+      duration_seconds: activeCallSeconds.value,
+      notes: callForm.notes.trim() || null,
     })
-
-    if (callForm.hasMeeting) {
-      const createdMeeting = await request('/meetings', {
-        method: 'POST',
-        body: JSON.stringify({
-          contact_id: contact.id,
-          call_log_id: createdLog.id,
-          scheduled_at: new Date(callForm.meetingAt).toISOString(),
-          notes: callForm.meetingNotes.trim() || null,
-        }),
-      })
-
-      meetings.value = [...meetings.value, createdMeeting].sort(
-        (left, right) => new Date(left.scheduled_at) - new Date(right.scheduled_at),
-      )
-    }
 
     callLogs.value = [createdLog, ...callLogs.value]
     contacts.value = contacts.value.map((item) =>
@@ -406,11 +681,13 @@ async function finishCall(outcome = callForm.outcome) {
 onMounted(() => {
   resetCallForm()
   fetchData()
+  fetchVoiceConfig()
 })
 
 onBeforeUnmount(() => {
   clearCountdown()
   clearCallTimer()
+  resetVoiceDevice()
   if (audioContext) {
     audioContext.close()
   }
@@ -418,334 +695,126 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="min-h-screen bg-slate-50 px-4 py-5 text-slate-950 sm:px-6 lg:px-8">
-    <div class="mx-auto grid w-full max-w-7xl gap-5">
-      <header class="grid gap-4 border-b border-slate-300 pb-5 lg:grid-cols-[1fr_auto] lg:items-end">
-        <div class="max-w-2xl">
-          <p class="text-xs font-black uppercase tracking-[0.22em] text-blue-700">Just Call</p>
-          <h1 class="mt-2 text-4xl font-black leading-none text-slate-950 sm:text-6xl">
-            DashBoard
-          </h1>
-          <p class="mt-3 max-w-xl text-sm font-semibold leading-6 text-slate-600">
-            Une cadence simple pour transformer une liste froide en conversations utiles.
-          </p>
-        </div>
+  <main
+    class="min-h-screen bg-slate-50 px-4 py-5 text-slate-950 sm:px-6 lg:px-8"
+    :class="{ 'just-call-shake': shouldShakeInterface }"
+  >
+    <ToastStack :toasts="toasts" @dismiss="dismissToast" />
 
-        <div class="grid grid-cols-2 gap-2 text-left sm:w-auto sm:min-w-[36rem] sm:grid-cols-4">
-          <div class="rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
-            <p class="text-[0.68rem] font-black uppercase tracking-[0.16em] text-slate-500">Pipeline</p>
-            <p class="mt-1 text-3xl font-black">{{ pendingContacts.length }}</p>
+    <div class="grid min-h-[calc(100vh-2.5rem)] grid-rows-[auto_1fr] gap-4">
+      <header class="sticky top-4 z-20 rounded-md border border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-4">
+            <div>
+              <p class="text-lg font-bold leading-none text-slate-950">Just Call</p>
+              <p class="mt-1 text-xs font-medium text-slate-500">
+                {{ contacts.length }} prospects - {{ pendingContacts.length }} a appeler - {{ totalCallsToday }} appels
+              </p>
+            </div>
+            <nav class="flex overflow-x-auto rounded-md bg-slate-100 p-1">
+              <button
+                v-for="view in dashboardViews"
+                :key="view.id"
+                type="button"
+                class="min-h-9 whitespace-nowrap rounded px-3 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950"
+                :class="activeView === view.id ? 'bg-white text-slate-950 shadow-sm' : ''"
+                @click="selectView(view.id)"
+              >
+                {{ view.label }}
+              </button>
+            </nav>
           </div>
-          <div class="rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
-            <p class="text-[0.68rem] font-black uppercase tracking-[0.16em] text-slate-600">Appels</p>
-            <p class="mt-1 text-3xl font-black">{{ totalCallsToday }}</p>
-          </div>
-          <div class="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
-            <p class="text-[0.68rem] font-black uppercase tracking-[0.16em] text-slate-700">Conversion</p>
-            <p class="mt-1 text-3xl font-black">{{ conversionRate }}%</p>
-          </div>
-          <div class="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-white shadow-sm">
-            <p class="text-[0.68rem] font-black uppercase tracking-[0.16em] text-slate-300">Timer</p>
-            <p class="mt-1 text-3xl font-black tabular-nums">{{ countdownLabel }}</p>
+          <div class="text-right text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+            Progression {{ conversionRate }}%
           </div>
         </div>
       </header>
 
-      <p v-if="error" class="rounded-md border border-red-200 bg-red-50 px-4 py-3 font-black text-red-900">
-        {{ error }}
-      </p>
-      <p
-        v-else-if="success"
-        class="rounded-md border border-slate-200 bg-white px-4 py-3 font-black text-blue-900"
-      >
-        {{ success }}
-      </p>
+      <section class="min-h-0">
+        <div class="grid min-h-full content-start gap-5">
+          <ProspectsView
+            v-if="activeView === 'prospects'"
+            :contact-form="contactForm"
+            :contacts="contacts"
+            :edit-form="prospectEditForm"
+            :format-date-time="formatDateTime"
+            :is-add-open="isAddProspectOpen"
+            :is-detail-open="isProspectDetailOpen"
+            :selected-prospect="selectedProspect"
+            @add-contact="addContact"
+            @close-add="isAddProspectOpen = false"
+            @close-detail="isProspectDetailOpen = false"
+            @open-add="openAddProspect"
+            @remove-contact="removeContact"
+            @save-prospect="saveProspect"
+            @select-prospect="openProspectDetail"
+          />
 
-      <section class="grid gap-5 lg:grid-cols-[380px_1fr]">
-        <aside class="grid content-start gap-5">
-          <form class="rounded-md border border-slate-200 bg-white p-4 shadow-sm" @submit.prevent="addContact">
-            <h2 class="text-xl font-black">Nouveau prospect</h2>
+          <CallingView
+            v-else-if="activeView === 'calling'"
+            :active-call="activeCall"
+            :active-call-duration="activeCallDuration"
+            :call-form="callForm"
+            :completed-contacts="completedContacts"
+            :countdown-label="countdownLabel"
+            :current-prospect="currentProspect"
+            :format-date-time="formatDateTime"
+            :is-running="isRunning"
+            :pending-contacts="pendingContacts"
+            :session-config="sessionConfig"
+            :session-started="sessionStarted"
+            :timeout-alert="timeoutAlert"
+            :timer-bar-class="timerBarClass"
+            :timer-panel-class="timerPanelClass"
+            :timer-progress="timerProgress"
+            :timer-tone="timerTone"
+            @dismiss-alert="dismissTimeoutAlert"
+            @finish-call="finishCall"
+            @open-setup="showSessionSetup = true"
+            @pause="pauseSession"
+            @reset="resetSession"
+            @start="startSession"
+            @start-prospect-call="startCallForProspect"
+          />
 
-            <div class="mt-4 grid gap-3">
-              <label class="grid gap-1.5 text-sm font-bold text-slate-700">
-                Nom
-                <input
-                  v-model="contactForm.name"
-                  maxlength="120"
-                  type="text"
-                  class="min-h-11 rounded-md border border-slate-300 bg-white px-3 outline-none focus:border-blue-600 focus:bg-white"
-                  placeholder="Entreprise ou contact"
-                />
-              </label>
+          <HistoryView
+            v-else-if="activeView === 'calls'"
+            :call-logs="callLogs"
+            :format-date-time="formatDateTime"
+            :format-duration="formatDuration"
+            :is-clearing-history="isClearingHistory"
+            :outcome-label="outcomeLabel"
+            @clear-history="clearHistory"
+            @open-log="openCallLog"
+          />
 
-              <label class="grid gap-1.5 text-sm font-bold text-slate-700">
-                Numéro
-                <input
-                  v-model="contactForm.phone_number"
-                  maxlength="40"
-                  type="tel"
-                  required
-                  class="min-h-11 rounded-md border border-slate-300 bg-white px-3 outline-none focus:border-blue-600 focus:bg-white"
-                  placeholder="+33 6 12 34 56 78"
-                />
-              </label>
-
-              <label class="grid gap-1.5 text-sm font-bold text-slate-700">
-                Notes
-                <textarea
-                  v-model="contactForm.notes"
-                  maxlength="2000"
-                  rows="3"
-                  class="resize-none rounded-md border border-slate-300 bg-white px-3 py-2 outline-none focus:border-blue-600 focus:bg-white"
-                  placeholder="Contexte rapide"
-                />
-              </label>
-
-              <button type="submit" class="min-h-11 rounded-md bg-blue-700 px-4 font-black text-white hover:bg-blue-800">
-                Ajouter
-              </button>
-            </div>
-          </form>
-
-          <section class="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-            <div class="flex items-center justify-between gap-3">
-              <h2 class="text-xl font-black">Cadence</h2>
-            </div>
-
-            <div class="mt-4 grid grid-cols-2 gap-3">
-              <label class="grid gap-1.5 text-sm font-bold text-slate-700">
-                Min. (minutes)
-                <input
-                  v-model.number="cadence.minMinutes"
-                  min="0.1"
-                  max="600"
-                  step="0.1"
-                  type="number"
-                  class="min-h-11 rounded-md border border-slate-300 bg-white px-3 outline-none focus:border-blue-600"
-                />
-              </label>
-
-              <label class="grid gap-1.5 text-sm font-bold text-slate-700">
-                Max. (minutes)
-                <input
-                  v-model.number="cadence.maxMinutes"
-                  min="0.1"
-                  max="600"
-                  step="0.1"
-                  type="number"
-                  class="min-h-11 rounded-md border border-slate-300 bg-white px-3 outline-none focus:border-blue-600"
-                />
-              </label>
-            </div>
-
-            <div class="mt-4 grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                class="min-h-11 rounded-md bg-slate-950 px-3 font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                :disabled="isRunning || Boolean(activeCall)"
-                @click="startSession"
-              >
-                Démarrer
-              </button>
-              <button
-                type="button"
-                class="min-h-11 rounded-md border border-slate-300 bg-white px-3 font-black hover:bg-white disabled:cursor-not-allowed disabled:text-slate-400"
-                :disabled="!isRunning || Boolean(activeCall)"
-                @click="pauseSession"
-              >
-                Pause
-              </button>
-              <button
-                type="button"
-                class="min-h-11 rounded-md border border-slate-300 bg-white px-3 font-black hover:bg-white"
-                @click="resetSession"
-              >
-                Reset
-              </button>
-            </div>
-          </section>
-        </aside>
-
-        <section class="grid content-start gap-5">
-          <section class="rounded-md border border-slate-200 bg-white shadow-sm">
-            <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
-              <h2 class="text-xl font-black">File d'appels</h2>
-              <span v-if="isLoading" class="text-sm font-black text-slate-700">Chargement...</span>
-            </div>
-
-            <div v-if="contacts.length" class="divide-y divide-slate-200">
-              <article
-                v-for="contact in contacts"
-                :key="contact.id"
-                class="grid gap-3 px-4 py-3 hover:bg-slate-50 sm:grid-cols-[1fr_auto] sm:items-center"
-              >
-                <div class="min-w-0">
-                  <div class="flex flex-wrap items-center gap-2">
-                    <h3 class="break-words font-black">
-                      {{ contact.name || 'Sans nom' }}
-                    </h3>
-                    <span
-                      v-if="completedContactIds.includes(contact.id)"
-                      class="rounded-sm bg-slate-100 px-2 py-1 text-xs font-black uppercase tracking-[0.12em] text-blue-900"
-                    >
-                      Session faite
-                    </span>
-                  </div>
-                  <p class="mt-1 font-mono text-sm text-slate-700">{{ contact.phone_number }}</p>
-                  <p v-if="contact.notes" class="mt-1 break-words text-sm text-slate-500">
-                    {{ contact.notes }}
-                  </p>
-                  <p class="mt-2 text-xs font-black uppercase tracking-[0.14em] text-slate-400">
-                    Dernier appel: {{ formatDateTime(contact.last_called_at) }}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  class="min-h-10 rounded-md border border-red-200 bg-white px-3 font-black text-red-700 hover:bg-red-50"
-                  @click="removeContact(contact.id)"
-                >
-                  Retirer
-                </button>
-              </article>
-            </div>
-
-            <p v-else-if="!isLoading" class="px-4 py-8 text-center font-black text-slate-500">
-              Aucun prospect.
-            </p>
-          </section>
-
-          <section class="rounded-md border border-slate-200 bg-white shadow-sm">
-            <div class="border-b border-slate-200 bg-slate-50 px-4 py-3">
-              <h2 class="text-xl font-black">Réunions</h2>
-            </div>
-
-            <div v-if="meetings.length" class="divide-y divide-slate-200">
-              <article
-                v-for="meeting in meetings"
-                :key="meeting.id"
-                class="grid gap-2 px-4 py-3 sm:grid-cols-[1fr_auto] sm:items-center"
-              >
-                <div class="min-w-0">
-                  <p class="break-words font-black">{{ meeting.contact_name || 'Sans nom' }}</p>
-                  <p class="font-mono text-sm text-slate-700">{{ meeting.phone_number }}</p>
-                  <p v-if="meeting.notes" class="mt-1 break-words text-sm text-slate-500">
-                    {{ meeting.notes }}
-                  </p>
-                </div>
-                <p class="text-left text-sm font-black text-slate-700 sm:text-right">
-                  {{ formatDateTime(meeting.scheduled_at) }}
-                </p>
-              </article>
-            </div>
-
-            <p v-else class="px-4 py-8 text-center font-black text-slate-500">
-              Aucune réunion planifiée.
-            </p>
-          </section>
-
-          <section class="rounded-md border border-slate-200 bg-white shadow-sm">
-            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 text-white">
-              <h2 class="text-xl font-black">Historique</h2>
-              <button
-                type="button"
-                class="min-h-9 rounded-md border border-slate-400 px-3 text-sm font-black text-white hover:bg-white hover:text-slate-950 disabled:cursor-not-allowed disabled:border-slate-600 disabled:text-slate-500"
-                :disabled="!callLogs.length || isClearingHistory"
-                @click="clearHistory"
-              >
-                Supprimer l'historique
-              </button>
-            </div>
-
-            <div v-if="callLogs.length" class="divide-y divide-slate-200">
-              <article
-                v-for="log in callLogs"
-                :key="log.id"
-                class="grid gap-2 px-4 py-3 hover:bg-slate-50 sm:grid-cols-[1fr_auto] sm:items-center"
-              >
-                <div class="min-w-0">
-                  <p class="break-words font-black">{{ log.contact_name || 'Sans nom' }}</p>
-                  <p class="font-mono text-sm text-slate-700">{{ log.phone_number }}</p>
-                  <p v-if="log.notes" class="mt-1 break-words text-sm text-slate-500">{{ log.notes }}</p>
-                </div>
-                <div class="text-left sm:text-right">
-                  <p class="font-black text-slate-950">{{ outcomeLabel(log.outcome) }}</p>
-                  <p class="text-sm font-bold text-slate-500">
-                    {{ formatDuration(log.duration_seconds) }} - {{ formatDateTime(log.created_at) }}
-                  </p>
-                </div>
-              </article>
-            </div>
-
-            <p v-else class="px-4 py-8 text-center font-black text-slate-500">
-              Aucun appel enregistré.
-            </p>
-          </section>
-        </section>
-      </section>
-    </div>
-
-    <div
-      v-if="activeCall"
-      class="fixed inset-0 z-20 grid place-items-center bg-slate-950/80 px-4 py-6"
-      role="dialog"
-      aria-modal="true"
-    >
-      <section class="w-full max-w-md rounded-md border border-slate-200 bg-white p-5 shadow-2xl">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <p class="text-sm font-bold uppercase tracking-normal text-blue-700">Appel simulé</p>
-            <h2 class="mt-1 break-words text-2xl font-black">{{ activeCall.name || 'Sans nom' }}</h2>
-            <p class="mt-1 font-mono text-lg text-slate-700">{{ activeCall.phone_number }}</p>
-          </div>
-          <p class="rounded-md bg-slate-950 px-3 py-2 font-mono text-lg font-black text-white">
-            {{ activeCallDuration }}
-          </p>
-        </div>
-
-        <div class="mt-5 grid gap-3">
-          <label class="grid gap-1.5 text-sm font-bold text-slate-700">
-            Résultat
-            <select
-              v-model="callForm.outcome"
-              class="min-h-11 rounded-md border border-slate-300 bg-white px-3 outline-none focus:border-blue-600 focus:bg-white"
-            >
-              <option value="answered">Terminé</option>
-              <option value="no_answer">Pas de réponse</option>
-              <option value="voicemail">Répondeur</option>
-              <option value="failed">Échec</option>
-            </select>
-          </label>
-
-          <label class="grid gap-1.5 text-sm font-bold text-slate-700">
-            Note d'appel
-            <textarea
-              v-model="callForm.notes"
-              maxlength="2000"
-              rows="3"
-              class="resize-none rounded-md border border-slate-300 bg-white px-3 py-2 outline-none focus:border-blue-600 focus:bg-white"
-              placeholder="Résultat, objection, prochaine action"
+          <section v-else-if="activeView === 'settings'" class="grid gap-5 lg:grid-cols-2">
+            <TwilioSettingsView
+              :is-voice-ready="isVoiceReady"
+              :missing-voice-config="missingVoiceConfig"
+              :voice-config="voiceConfig"
+              @check-voice="fetchVoiceConfig"
             />
-          </label>
-        </div>
-
-        <div class="mt-5 grid gap-2 sm:grid-cols-2">
-          <button
-            type="button"
-            class="min-h-11 rounded-md bg-blue-700 px-4 font-black text-white hover:bg-blue-800"
-            @click="finishCall()"
-          >
-            Terminer l'appel
-          </button>
-          <button
-            type="button"
-            class="min-h-11 rounded-md border border-slate-300 bg-white px-4 font-black hover:bg-slate-50"
-            @click="finishCall('no_answer')"
-          >
-            Pas de réponse
-          </button>
+          </section>
         </div>
       </section>
     </div>
+
+    <CallLogDrawer
+      v-if="selectedCallLog"
+      :format-date-time="formatDateTime"
+      :format-duration="formatDuration"
+      :log="selectedCallLog"
+      :outcome-label="outcomeLabel"
+      @close="closeCallLog"
+    />
+
+    <SessionSetupModal
+      v-if="showSessionSetup"
+      :form="sessionForm"
+      :prospect-count="contacts.length"
+      @close="showSessionSetup = false"
+      @start="startCallingSession"
+    />
   </main>
 </template>

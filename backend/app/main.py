@@ -1,9 +1,16 @@
+import logging
 from typing import Annotated
+from urllib.parse import parse_qs
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
+from twilio.base.exceptions import TwilioRestException
+from twilio.jwt.access_token import AccessToken
+from twilio.jwt.access_token.grants import VoiceGrant
+from twilio.rest import Client
+from twilio.twiml.voice_response import Dial, VoiceResponse
 
 from app.config import settings
 from app.database import Base, engine, get_db
@@ -16,9 +23,14 @@ from app.schemas import (
     ContactUpdate,
     MeetingCreate,
     MeetingRead,
+    OutboundCallCreate,
+    OutboundCallRead,
+    VoiceConfigRead,
+    VoiceTokenRead,
 )
 
 app = FastAPI(title="Just Call API")
+logger = logging.getLogger("just-call.voice")
 
 app.add_middleware(
     CORSMiddleware,
@@ -155,6 +167,126 @@ def create_call_log(payload: CallLogCreate, db: Annotated[Session, Depends(get_d
     db.commit()
     db.refresh(call_log)
     return call_log
+
+
+@app.post("/calls", response_model=OutboundCallRead, status_code=status.HTTP_201_CREATED)
+def create_outbound_call(payload: OutboundCallCreate) -> OutboundCallRead:
+    if (
+        not settings.twilio_account_sid
+        or not settings.twilio_auth_token
+        or not settings.twilio_phone_number
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Twilio is not configured on the server.",
+        )
+
+    client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
+
+    try:
+        call = client.calls.create(
+            url=settings.twilio_voice_url,
+            to=payload.to,
+            from_=settings.twilio_phone_number,
+        )
+    except TwilioRestException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.msg or "Twilio could not create the call.",
+        ) from exc
+
+    return OutboundCallRead(
+        sid=call.sid,
+        status=call.status,
+        to=payload.to,
+        from_number=settings.twilio_phone_number,
+    )
+
+
+def missing_voice_config() -> list[str]:
+    required_values = {
+        "TWILIO_ACCOUNT_SID": settings.twilio_account_sid,
+        "TWILIO_PHONE_NUMBER": settings.twilio_phone_number,
+        "TWILIO_API_KEY_SID": settings.twilio_api_key_sid,
+        "TWILIO_API_KEY_SECRET": settings.twilio_api_key_secret,
+        "TWILIO_TWIML_APP_SID": settings.twilio_twiml_app_sid,
+    }
+    return [name for name, value in required_values.items() if not value]
+
+
+@app.get("/voice/config", response_model=VoiceConfigRead)
+def get_voice_config() -> VoiceConfigRead:
+    missing = missing_voice_config()
+    return VoiceConfigRead(
+        is_ready=not missing,
+        missing=missing,
+        phone_number=settings.twilio_phone_number,
+    )
+
+
+@app.get("/voice/token", response_model=VoiceTokenRead)
+def create_voice_token() -> VoiceTokenRead:
+    missing = missing_voice_config()
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Twilio Voice is missing: {', '.join(missing)}.",
+        )
+
+    identity = "just-call-browser"
+    token = AccessToken(
+        settings.twilio_account_sid,
+        settings.twilio_api_key_sid,
+        settings.twilio_api_key_secret,
+        identity=identity,
+    )
+    token.add_grant(
+        VoiceGrant(
+            outgoing_application_sid=settings.twilio_twiml_app_sid,
+            incoming_allow=False,
+        )
+    )
+
+    return VoiceTokenRead(token=token.to_jwt(), identity=identity)
+
+
+async def voice_twiml_response(request: Request) -> Response:
+    if not settings.twilio_phone_number:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Twilio phone number is not configured on the server.",
+        )
+
+    if request.method == "GET":
+        to_number = (request.query_params.get("To") or "").strip()
+    else:
+        raw_body = (await request.body()).decode("utf-8")
+        form_payload = parse_qs(raw_body)
+        to_number = (form_payload.get("To") or [""])[0].strip()
+
+    logger.info("Twilio Voice webhook received: method=%s to=%s", request.method, to_number or "<missing>")
+
+    response = VoiceResponse()
+    if not to_number:
+        response.say("Missing destination number.")
+        logger.warning("Twilio Voice webhook missing To parameter.")
+        return Response(content=str(response), media_type="application/xml")
+
+    dial = Dial(caller_id=settings.twilio_phone_number)
+    dial.number(to_number)
+    response.append(dial)
+
+    return Response(content=str(response), media_type="application/xml")
+
+
+@app.get("/voice/twiml")
+async def create_voice_twiml_get(request: Request) -> Response:
+    return await voice_twiml_response(request)
+
+
+@app.post("/voice/twiml")
+async def create_voice_twiml_post(request: Request) -> Response:
+    return await voice_twiml_response(request)
 
 
 @app.get("/meetings", response_model=list[MeetingRead])

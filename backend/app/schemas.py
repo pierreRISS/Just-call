@@ -74,6 +74,37 @@ class CallLogRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class OutboundCallCreate(BaseModel):
+    to: str = Field(..., min_length=3, max_length=40)
+
+    @field_validator("to", mode="before")
+    @classmethod
+    def strip_to(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        stripped = value.strip()
+        return stripped or None
+
+
+class OutboundCallRead(BaseModel):
+    sid: str
+    status: str | None
+    to: str
+    from_number: str
+
+
+class VoiceTokenRead(BaseModel):
+    token: str
+    identity: str
+
+
+class VoiceConfigRead(BaseModel):
+    is_ready: bool
+    missing: list[str]
+    phone_number: str | None
+
+
 class MeetingCreate(BaseModel):
     contact_id: int
     call_log_id: int | None = None

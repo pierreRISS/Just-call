@@ -5,6 +5,13 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5433/just_call"
     frontend_origin: str = "http://localhost:5173"
     frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_phone_number: str | None = None
+    twilio_api_key_sid: str | None = None
+    twilio_api_key_secret: str | None = None
+    twilio_twiml_app_sid: str | None = None
+    twilio_voice_url: str = "http://demo.twilio.com/docs/voice.xml"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

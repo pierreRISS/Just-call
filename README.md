@@ -5,6 +5,25 @@ Full-stack call cadence app for cold calling sessions:
 - `backend/`: FastAPI + PostgreSQL
 - `frontend/`: Vue 3 + Vite + Tailwind CSS
 
+## Start Everything
+
+```bash
+./scripts/dev.sh
+```
+
+For Twilio Voice local testing, start the backend tunnel too:
+
+```bash
+./scripts/dev.sh --ngrok
+```
+
+This requires the `ngrok` CLI to be installed and authenticated first. If
+`http://127.0.0.1:4040` refuses the connection, ngrok is not running.
+
+Then open `http://127.0.0.1:4040`, copy the ngrok HTTPS URL, and use
+`https://your-ngrok-url/voice/twiml` as the TwiML App Voice Request URL in
+Twilio.
+
 ## Start PostgreSQL
 
 ```bash

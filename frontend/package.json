@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.4",
+    "@twilio/voice-sdk": "^2.16.0",
     "@vitejs/plugin-vue": "^5.2.1",
     "tailwindcss": "^4.2.4",
     "vite": "^6.0.7",
