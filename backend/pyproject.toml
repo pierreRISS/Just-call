@@ -1,0 +1,16 @@
+[project]
+name = "just-call-backend"
+version = "0.1.0"
+description = "FastAPI todo boilerplate for Just Call"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "SQLAlchemy==2.0.36",
+    "psycopg[binary]==3.2.3",
+    "pydantic-settings==2.7.1",
+]
+
+[tool.uv]
+package = false
+
