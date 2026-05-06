@@ -25,6 +25,10 @@ uv run uvicorn app.main:app --reload
 
 API: `http://localhost:8000`
 
+For local development, CORS accepts Vite origins on `localhost`, `127.0.0.1`,
+and private network IPs on ports `5173` to `5179`. Add more origins in
+`backend/.env` with `FRONTEND_ORIGINS` if needed.
+
 ## Start the frontend
 
 ```bash
