@@ -1,70 +1,63 @@
-# Just Call
+# Just Call : Mode "Tunnel" Anti-Procrastination
 
-Full-stack call cadence app for cold calling sessions:
+L'application est ultra-simple et conçue pour une seule chose : te forcer à enchaîner les appels sans te laisser le temps de réfléchir.
 
-- `backend/`: FastAPI + PostgreSQL
-- `frontend/`: Vue 3 + Vite + Tailwind CSS
+Tu configures, tu lances, et tu suis le chrono.
 
-## Start Everything
+---
 
-```bash
-./scripts/dev.sh
-```
+## 1. Prépare tes cibles *(Onglet Prospects)*
 
-For Twilio Voice local testing, start the backend tunnel too:
+- Ajoute tous les numéros que tu dois appeler en une seule fois.
+- Remplis ta liste avant de commencer.
 
-```bash
-./scripts/dev.sh --ngrok
-```
+---
 
-This requires the `ngrok` CLI to be installed and authenticated first. If
-`http://127.0.0.1:4040` refuses the connection, ngrok is not running.
+## 2. Entre dans le tunnel *(Onglet Calling)*
 
-Then open `http://127.0.0.1:4040`, copy the ngrok HTTPS URL, and use
-`https://your-ngrok-url/voice/twiml` as the TwiML App Voice Request URL in
-Twilio.
+- Clique sur **Démarrer une session**.
+- Fixe ta **Cadence** *(le temps max autorisé entre deux appels, ex : 3 minutes)*.
+- Clique sur **START**.
 
-## Start PostgreSQL
+À partir de maintenant, c'est l'application qui décide.
 
-```bash
-docker compose up -d postgres
-```
+---
 
-The compose file maps PostgreSQL to local port `5433` by default to avoid
-conflicts with an existing local PostgreSQL on `5432`.
+## 3. Obéis au chronomètre *(L'Action)*
 
-## Start the API
+- Le compte à rebours défile.
+- Dès que le compteur atteint **0** :
+  - L'écran tremble et une alarme sonne.
+  - C'est le signal.
+  - Tu n'as pas le choix : tu cliques sur **Appeler**.
 
-```bash
-cd backend
-uv sync
-cp .env.example .env  # skip if backend/.env already exists
-uv run uvicorn app.main:app --reload
-```
+- L'appel se fait directement via ton navigateur.
+- Dès que tu raccroches, logge directement le résultat :
+  - Terminé
+  - Pas de réponse
+  - Répondeur
+  - etc.
 
-API: `http://localhost:8000`
+Puis enregistre.
 
-For local development, CORS accepts Vite origins on `localhost`, `127.0.0.1`,
-and private network IPs on ports `5173` to `5179`. Add more origins in
-`backend/.env` with `FRONTEND_ORIGINS` if needed.
+### Boucle auto
 
-## Start the frontend
+Le timer du prospect suivant démarre instantanément.
 
-```bash
-cd frontend
-npm install
-cp .env.example .env  # skip if frontend/.env already exists
-npm run dev
-```
+Enchaîne.
 
-Frontend: `http://localhost:5173`
+---
 
-## API
+# Les indicateurs de succès
 
-- `GET /health`
-- `GET /contacts`
-- `POST /contacts`
-- `PATCH /contacts/{contact_id}`
-- `DELETE /contacts/{contact_id}`
-- `GET /call-logs`
-- `POST /call-logs`
+## Barre supérieure
+
+Suis ton pourcentage de progression en direct.
+
+## Onglet Appels
+
+Ton historique s'alimente tout seul.
+
+---
+
+Laisse l'interface trembler pour te rappeler à l'ordre, suis le rythme et vide ta liste.
