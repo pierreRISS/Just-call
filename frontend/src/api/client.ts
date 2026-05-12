@@ -1,4 +1,8 @@
-const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const configuredApiUrl = import.meta.env.VITE_API_URL
+const defaultApiUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:8000'
+  : 'https://just-call-api.onrender.com'
+const apiUrl = (configuredApiUrl || defaultApiUrl).replace(/\/$/, '')
 let authToken = window.localStorage.getItem('just-call-token')
 
 export function setAuthToken(token: string | null) {
