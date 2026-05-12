@@ -39,6 +39,7 @@ conflicts with an existing local PostgreSQL on `5432`.
 cd backend
 uv sync
 cp .env.example .env  # skip if backend/.env already exists
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
@@ -62,9 +63,18 @@ Frontend: `http://localhost:5173`
 ## API
 
 - `GET /health`
-- `GET /contacts`
-- `POST /contacts`
-- `PATCH /contacts/{contact_id}`
-- `DELETE /contacts/{contact_id}`
-- `GET /call-logs`
-- `POST /call-logs`
+- `GET /me`
+- `GET /prospects`
+- `POST /prospects`
+- `PATCH /prospects/{prospect_id}`
+- `DELETE /prospects/{prospect_id}`
+- `GET /calls`
+- `POST /calls`
+- `PATCH /calls/{call_id}`
+- `DELETE /calls/{call_id}`
+- `POST /ai-reviews`
+- `GET /replay-sessions`
+- `POST /replay-sessions`
+- `GET /settings`
+- `PATCH /settings`
+- `POST /twilio/outbound-calls`

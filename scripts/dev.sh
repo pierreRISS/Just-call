@@ -45,7 +45,7 @@ echo "Installing frontend dependencies..."
 (cd "$ROOT_DIR/frontend" && npm install)
 
 echo "Starting backend on http://localhost:8000..."
-(cd "$ROOT_DIR/backend" && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload) &
+(cd "$ROOT_DIR/backend" && uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload) &
 PIDS+=("$!")
 
 echo "Starting frontend on http://localhost:5173..."

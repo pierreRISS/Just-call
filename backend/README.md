@@ -1,12 +1,13 @@
 # Backend
 
-FastAPI API for the Just Call cold calling cadence app, backed by PostgreSQL.
+FastAPI API for the Just Call AI-powered sales calling workspace, backed by PostgreSQL.
 
 ## Setup
 
 ```bash
 uv sync
 cp .env.example .env
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
@@ -17,6 +18,16 @@ postgresql+psycopg://postgres:postgres@localhost:5433/just_call
 ```
 
 You can override it with `DATABASE_URL`.
+
+`SEED_ON_STARTUP=true` inserts a default mono-user workspace with sample prospects,
+calls, AI review data, replay sessions, and settings.
+
+## Migrations
+
+```bash
+uv run alembic upgrade head
+uv run alembic revision --autogenerate -m "describe change"
+```
 
 ## Twilio Voice
 
@@ -31,31 +42,35 @@ TWILIO_API_KEY_SECRET=...
 TWILIO_TWIML_APP_SID=AP...
 ```
 
-The TwiML App voice request URL must point to the public backend route.
-When testing locally, first expose the backend with ngrok:
-
-```bash
-ngrok http 8000
-```
-
-Copy the HTTPS URL from ngrok and use it as the TwiML App Voice Request URL:
+When testing locally, expose the backend with ngrok and set the TwiML App Voice Request URL:
 
 ```text
 https://your-ngrok-url.ngrok-free.app/voice/twiml
 ```
 
-Then copy the TwiML App SID, which starts with `AP`, into `TWILIO_TWIML_APP_SID`
-and restart the backend.
-
 ## Routes
 
 - `GET /health`
+- `GET /me`
+- `GET /prospects`
+- `POST /prospects`
+- `GET /prospects/{prospect_id}`
+- `PATCH /prospects/{prospect_id}`
+- `DELETE /prospects/{prospect_id}`
+- `GET /calls`
+- `POST /calls`
+- `GET /calls/{call_id}`
+- `PATCH /calls/{call_id}`
+- `DELETE /calls/{call_id}`
+- `POST /ai-reviews`
+- `PATCH /ai-reviews/{review_id}`
+- `GET /replay-sessions`
+- `POST /replay-sessions`
+- `PATCH /replay-sessions/{replay_session_id}`
+- `GET /settings`
+- `PATCH /settings`
+- `POST /twilio/outbound-calls`
 - `GET /voice/config`
 - `GET /voice/token`
+- `GET /voice/twiml`
 - `POST /voice/twiml`
-- `GET /contacts`
-- `POST /contacts`
-- `PATCH /contacts/{contact_id}`
-- `DELETE /contacts/{contact_id}`
-- `GET /call-logs`
-- `POST /call-logs`

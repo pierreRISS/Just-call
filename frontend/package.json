@@ -5,15 +5,22 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
+    "build": "vue-tsc --noEmit && vite build",
+    "deploy:cloudflare": "npm run build && npx wrangler pages deploy dist --project-name just-call",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.4",
-    "@twilio/voice-sdk": "^2.16.0",
     "@vitejs/plugin-vue": "^5.2.1",
+    "lucide-vue-next": "^1.0.0",
+    "pinia": "^3.0.4",
     "tailwindcss": "^4.2.4",
+    "typescript": "^6.0.3",
     "vite": "^6.0.7",
-    "vue": "^3.5.13"
+    "vue": "^3.5.13",
+    "vue-tsc": "^3.2.8"
+  },
+  "devDependencies": {
+    "playwright": "^1.59.1"
   }
 }
