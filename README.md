@@ -22,5 +22,5 @@ The product is now shaped around a calm premium workflow:
 ./scripts/dev.sh
 ```
 
-The dev script starts PostgreSQL, runs Alembic migrations, seeds the default
+The dev script starts PostgreSQL, ru ns Alembic migrations, seeds the default
 workspace, and starts both backend and frontend.

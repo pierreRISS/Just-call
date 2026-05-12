@@ -1,5 +1,9 @@
-from pydantic import field_validator
+from pathlib import Path
+
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseSettings):
@@ -13,12 +17,12 @@ class Settings(BaseSettings):
     twilio_api_key_secret: str | None = None
     twilio_twiml_app_sid: str | None = None
     twilio_voice_url: str = "http://demo.twilio.com/docs/voice.xml"
-    groq_api_key: str | None = None
+    groq_api_key: str | None = Field(default=None, validation_alias=AliasChoices("GROQ_API_KEY", "API_KEY_GROQ"))
     groq_model: str = "openai/gpt-oss-120b"
     groq_transcription_model: str = "whisper-large-v3"
     seed_on_startup: bool = True
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8", extra="ignore")
 
     @field_validator("database_url", mode="before")
     @classmethod
