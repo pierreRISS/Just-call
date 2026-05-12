@@ -35,6 +35,12 @@ export function useTwilioVoice() {
     status.value = 'connecting'
     errorMessage.value = ''
 
+    console.info('[JustCall][Twilio] connecting call', {
+      callId: params.callId,
+      to: params.to,
+      recordConsent: params.recordConsent,
+    })
+
     activeCall = await currentDevice.connect({
       params: {
         To: params.to,

@@ -77,6 +77,11 @@ async function startVoiceCall() {
 
   try {
     await microphone.start()
+    console.info('[JustCall][CallView] selected prospect phone', {
+      prospectId: workspace.selectedProspect.id,
+      prospectName: workspace.selectedProspect.name,
+      phone: workspace.selectedProspect.phone,
+    })
     await voice.connect({
       to: workspace.selectedProspect.phone,
       callId: call.id,
