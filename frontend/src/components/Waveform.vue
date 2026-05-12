@@ -1,6 +1,7 @@
 <script setup lang="ts">
-defineProps<{
+const props = defineProps<{
   active?: boolean
+  levels?: number[]
 }>()
 
 const bars = [32, 52, 28, 74, 46, 84, 38, 62, 30, 70, 48, 88, 42, 58, 34, 66, 40, 76]
@@ -13,7 +14,7 @@ const bars = [32, 52, 28, 74, 46, 84, 38, 62, 30, 70, 48, 88, 42, 58, 34, 66, 40
       :key="index"
       class="waveform-bar w-1.5 rounded-full bg-stone-950/75"
       :class="{ 'is-active': active }"
-      :style="{ height: `${height}%`, animationDelay: `${index * 90}ms` }"
+      :style="{ height: `${props.levels?.[index] ?? height}%`, animationDelay: `${index * 90}ms` }"
     />
   </div>
 </template>

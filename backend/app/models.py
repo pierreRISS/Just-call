@@ -87,6 +87,7 @@ class SalesCall(Base):
     duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transcript_data: Mapped[list[dict[str, str]]] = mapped_column(JSONB, nullable=False, default=list)
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     global_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
@@ -121,6 +122,7 @@ class AIReview(Base):
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     strengths: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     improvement_focus: Mapped[str] = mapped_column(Text, nullable=False)
+    metrics: Mapped[list[dict[str, str | int]]] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

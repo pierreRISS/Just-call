@@ -143,11 +143,20 @@ class ProspectRead(ProspectBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ReviewMetric(BaseModel):
+    id: str = Field(..., max_length=40)
+    label: str = Field(..., max_length=80)
+    score: int = Field(..., ge=0, le=100)
+    delta: str = Field(default="+0%", max_length=20)
+    comment: str | None = Field(default=None, max_length=500)
+
+
 class AIReviewBase(BaseModel):
     global_score: int = Field(..., ge=0, le=100)
     summary: str = Field(..., max_length=5000)
     strengths: list[str] = Field(default_factory=list)
     improvement_focus: str = Field(..., max_length=3000)
+    metrics: list[ReviewMetric] = Field(default_factory=list)
 
 
 class AIReviewCreate(AIReviewBase):
@@ -159,6 +168,7 @@ class AIReviewUpdate(BaseModel):
     summary: str | None = Field(default=None, max_length=5000)
     strengths: list[str] | None = None
     improvement_focus: str | None = Field(default=None, max_length=3000)
+    metrics: list[ReviewMetric] | None = None
 
 
 class AIReviewRead(AIReviewBase):
@@ -168,6 +178,16 @@ class AIReviewRead(AIReviewBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TranscriptTurn(BaseModel):
+    speaker: Literal["caller", "client"]
+    text: str = Field(..., max_length=4000)
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
 
 
 class CallBase(BaseModel):
@@ -180,6 +200,7 @@ class CallBase(BaseModel):
     duration_seconds: int = Field(default=0, ge=0)
     notes: str | None = Field(default=None, max_length=8000)
     transcript: str | None = Field(default=None, max_length=50000)
+    transcript_data: list[TranscriptTurn] = Field(default_factory=list)
     ai_summary: str | None = Field(default=None, max_length=5000)
     global_score: int | None = Field(default=None, ge=0, le=100)
     tags: list[str] = Field(default_factory=list)
@@ -207,6 +228,7 @@ class CallUpdate(BaseModel):
     duration_seconds: int | None = Field(default=None, ge=0)
     notes: str | None = Field(default=None, max_length=8000)
     transcript: str | None = Field(default=None, max_length=50000)
+    transcript_data: list[TranscriptTurn] | None = None
     ai_summary: str | None = Field(default=None, max_length=5000)
     global_score: int | None = Field(default=None, ge=0, le=100)
     tags: list[str] | None = None
@@ -232,6 +254,15 @@ class CallRead(CallBase):
 class ReplayMessage(BaseModel):
     speaker: Literal["ai", "seller"]
     text: str = Field(..., max_length=4000)
+
+
+class ReplayMessageCreate(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
 
 
 class ReplaySessionBase(BaseModel):

@@ -16,7 +16,7 @@ export function setAuthToken(token: string | null) {
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 8000)
+  const timeout = window.setTimeout(() => controller.abort(), 30000)
 
   const response = await fetch(`${apiUrl}${path}`, {
     ...options,
@@ -105,6 +105,14 @@ export function updateCall(callId: number, payload: BackendCallUpdate) {
   })
 }
 
+export function getVoiceConfig() {
+  return apiRequest<BackendVoiceConfig>('/voice/config')
+}
+
+export function getVoiceToken() {
+  return apiRequest<BackendVoiceToken>('/voice/token')
+}
+
 export function getReplaySessions() {
   return apiRequest<BackendReplaySession[]>('/replay-sessions')
 }
@@ -113,6 +121,13 @@ export function createReplaySession(payload: BackendReplaySessionCreate) {
   return apiRequest<BackendReplaySession>('/replay-sessions', {
     method: 'POST',
     body: JSON.stringify(payload),
+  })
+}
+
+export function sendReplayMessage(replaySessionId: number, text: string) {
+  return apiRequest<BackendReplaySession>(`/replay-sessions/${replaySessionId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
   })
 }
 
@@ -167,6 +182,17 @@ export type BackendAuthSession = {
   user: BackendUser
 }
 
+export type BackendVoiceConfig = {
+  is_ready: boolean
+  missing: string[]
+  phone_number: string | null
+}
+
+export type BackendVoiceToken = {
+  token: string
+  identity: string
+}
+
 export type BackendProspectUpdate = Partial<BackendProspectCreate>
 
 export type BackendProspectCreate = {
@@ -195,7 +221,21 @@ export type BackendAiReview = {
   summary: string
   strengths: string[]
   improvement_focus: string
+  metrics: BackendReviewMetric[]
   created_at: string
+}
+
+export type BackendReviewMetric = {
+  id: string
+  label: string
+  score: number
+  delta: string
+  comment?: string | null
+}
+
+export type BackendTranscriptTurn = {
+  speaker: 'caller' | 'client'
+  text: string
 }
 
 export type BackendCall = {
@@ -210,6 +250,7 @@ export type BackendCall = {
   duration_seconds: number
   notes: string | null
   transcript: string | null
+  transcript_data: BackendTranscriptTurn[]
   ai_summary: string | null
   global_score: number | null
   tags: string[]
@@ -231,6 +272,7 @@ export type BackendCallCreate = {
   duration_seconds?: number
   notes?: string | null
   transcript?: string | null
+  transcript_data?: BackendTranscriptTurn[]
   ai_summary?: string | null
   global_score?: number | null
   tags?: string[]

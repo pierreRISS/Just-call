@@ -67,6 +67,7 @@ https://your-ngrok-url.ngrok-free.app/voice/twiml
 - `GET /replay-sessions`
 - `POST /replay-sessions`
 - `PATCH /replay-sessions/{replay_session_id}`
+- `POST /replay-sessions/{replay_session_id}/messages`
 - `GET /settings`
 - `PATCH /settings`
 - `POST /twilio/outbound-calls`
@@ -74,3 +75,5 @@ https://your-ngrok-url.ngrok-free.app/voice/twiml
 - `GET /voice/token`
 - `GET /voice/twiml`
 - `POST /voice/twiml`
+- `POST /voice/dial-status`
+- `POST /voice/recording-status`

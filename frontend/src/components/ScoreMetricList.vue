@@ -42,6 +42,7 @@ withDefaults(
       <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-stone-200/70">
         <div class="h-full rounded-full bg-stone-950" :style="{ width: `${metric.score}%` }" />
       </div>
+      <p v-if="metric.comment" class="mt-3 text-xs font-medium leading-5 text-stone-500">{{ metric.comment }}</p>
     </article>
   </div>
 </template>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, nextTick, ref } from 'vue'
 import LumaSurface from '../components/LumaSurface.vue'
 import ReplayBadge from '../components/ReplayBadge.vue'
 import Waveform from '../components/Waveform.vue'
@@ -9,13 +10,29 @@ const difficulties = ['Calm', 'Balanced', 'Demanding']
 const objectionTypes = ['Tool fatigue', 'Budget timing', 'Adoption risk', 'No urgency']
 const behaviors = ['Skeptical but fair', 'Busy executive', 'Detail-oriented', 'Quiet founder']
 const modes = ['Discovery', 'Objection practice', 'Closing clarity']
-const selectedDifficulty = 'Balanced'
-const selectedObjection = 'Tool fatigue'
-const selectedBehavior = 'Skeptical but fair'
-const selectedMode = 'Objection practice'
+const selectedDifficulty = computed(() => workspace.selectedReplaySession?.difficulty ?? 'Balanced')
+const selectedObjection = computed(() => workspace.selectedReplaySession?.objectionType ?? 'Tool fatigue')
+const selectedBehavior = computed(() => workspace.selectedReplaySession?.prospectBehavior ?? 'Skeptical but fair')
+const selectedMode = computed(() => workspace.selectedReplaySession?.simulationMode ?? 'Text replay')
+const draftMessage = ref('')
+const isSending = ref(false)
+const messagesEnd = ref<HTMLElement | null>(null)
 
 function updateSimulation() {
   workspace.pushToast('Simulation settings updated.', 'info')
+}
+
+async function sendMessage() {
+  if (isSending.value || !draftMessage.value.trim()) return
+
+  const message = draftMessage.value
+  draftMessage.value = ''
+  isSending.value = true
+  const sent = await workspace.sendReplayText(message)
+  isSending.value = false
+  if (!sent) draftMessage.value = message
+  await nextTick()
+  messagesEnd.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
 }
 </script>
 
@@ -29,7 +46,7 @@ function updateSimulation() {
             Replay with {{ workspace.selectedCall.prospectName }}
           </h2>
           <p class="mt-4 max-w-2xl text-sm font-medium leading-6 text-stone-500">
-            Practice the same objection with a calm AI prospect that mirrors the original call context.
+            Practice the same objection in text with an AI prospect that mirrors the original call context.
           </p>
         </div>
         <button
@@ -69,6 +86,28 @@ function updateSimulation() {
         >
           {{ message.text }}
         </article>
+        <div ref="messagesEnd" />
+      </div>
+
+      <form class="mt-8 flex flex-col gap-3 sm:flex-row" @submit.prevent="sendMessage">
+        <input
+          v-model="draftMessage"
+          type="text"
+          class="min-h-12 flex-1 rounded-full border border-white/70 bg-white/70 px-5 text-sm font-semibold text-stone-700 outline-none backdrop-blur-xl placeholder:text-stone-400"
+          placeholder="Type your seller reply..."
+          :disabled="isSending"
+        >
+        <button
+          type="submit"
+          class="rounded-full bg-stone-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(28,25,23,0.18)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+          :disabled="isSending || !draftMessage.trim()"
+        >
+          {{ isSending ? 'Thinking...' : 'Send' }}
+        </button>
+      </form>
+
+      <div v-if="!workspace.selectedReplaySession" class="mt-6 rounded-2xl bg-white/55 p-4 text-sm font-semibold text-stone-500">
+        Start a replay from any AI review to create a live practice session.
       </div>
     </LumaSurface>
 

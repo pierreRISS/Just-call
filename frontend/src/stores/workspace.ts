@@ -11,6 +11,7 @@ import {
   getSettings,
   login,
   logout,
+  sendReplayMessage,
   setAuthToken,
   updateCall,
   updateProspect,
@@ -145,10 +146,18 @@ function mapUser(payload: BackendUser): WorkspaceUser {
 
 function mapAiReview(payload: BackendAiReview | null): AiReview | null {
   if (!payload) return null
-  const reviewMetrics = buildPerformanceMetrics(payload.global_score)
+  const reviewMetrics = payload.metrics?.length
+    ? payload.metrics.map((metric) => ({
+        id: metric.id,
+        label: metric.label,
+        score: clampScore(metric.score),
+        delta: metric.delta || '+0%',
+        comment: metric.comment,
+      }))
+    : buildPerformanceMetrics(payload.global_score)
 
   return {
-    score: averageMetricScore(reviewMetrics),
+    score: clampScore(payload.global_score),
     metrics: reviewMetrics,
     summary: payload.summary,
     strengths: payload.strengths,
@@ -201,6 +210,15 @@ function mapCall(payload: BackendCall): CallRecord {
   const sourceCallId = parseSourceCallId(payload.tags)
   const rawScore = payload.global_score ?? payload.ai_review?.global_score ?? null
   const score = rawScore && rawScore >= 20 ? rawScore : averageMetricScore(performanceScorecard)
+  const callMetrics = payload.ai_review?.metrics?.length
+    ? payload.ai_review.metrics.map((metric) => ({
+        id: metric.id,
+        label: metric.label,
+        score: clampScore(metric.score),
+        delta: metric.delta || '+0%',
+        comment: metric.comment,
+      }))
+    : buildPerformanceMetrics(score)
 
   return {
     id: payload.id,
@@ -211,7 +229,7 @@ function mapCall(payload: BackendCall): CallRecord {
     date: formatDate(payload.started_at || payload.created_at),
     duration: formatDuration(payload.duration_seconds),
     score,
-    metrics: buildPerformanceMetrics(score),
+    metrics: callMetrics,
     summary: payload.ai_summary || payload.ai_review?.summary || 'No AI summary yet.',
     transcriptPreview: payload.transcript || payload.notes || 'No transcript captured yet.',
     tags: payload.tags,
@@ -286,6 +304,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const selectedReplaySessionId = ref<number | null>(null)
   const callStage = ref<CallStage>('prep')
   const selectedQuickAction = ref('Interested')
+  const activeBrowserCallId = ref<number | null>(null)
   const activeCallStartedAt = ref<string | null>(null)
   const callNotes = ref(
     'Opening: mention current hiring wave.\n\nDiscovery:\n- Ask how managers review outbound calls today\n- Clarify ramp bottleneck\n\nNext step: propose a 20 minute workflow review.',
@@ -530,6 +549,73 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     pushToast('Live call started.', 'info')
   }
 
+  async function beginBrowserCall(recordConsent: boolean): Promise<CallRecord | null> {
+    const prospect = selectedProspect.value
+    if (!prospect) return null
+
+    activeCallStartedAt.value = new Date().toISOString()
+    try {
+      const created = await createCall({
+        prospect_id: prospect.id,
+        status: 'in_progress',
+        quick_action: selectedQuickAction.value,
+        duration_seconds: 0,
+        notes: callNotes.value.trim() || null,
+        transcript: null,
+        transcript_data: [],
+        tags: recordConsent ? ['Recording consent confirmed'] : ['No recording'],
+        started_at: activeCallStartedAt.value,
+      })
+      const call = mapCall(created)
+      callRecords.value = attachReplayComparisons([call, ...callRecords.value])
+      selectedCallId.value = call.id
+      activeBrowserCallId.value = call.id
+      callStage.value = 'live'
+      pushToast(recordConsent ? 'Call started with recording enabled.' : 'Call started without recording.', 'info')
+      return call
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Call could not be prepared.', 'error')
+      return null
+    }
+  }
+
+  async function failBrowserCall(callId: number) {
+    try {
+      const saved = await updateCall(callId, {
+        status: 'failed',
+        ended_at: new Date().toISOString(),
+      })
+      const mapped = mapCall(saved)
+      callRecords.value = callRecords.value.map((call) => (call.id === mapped.id ? mapped : call))
+    } catch {
+      // Twilio status webhooks may still reconcile this call.
+    }
+  }
+
+  async function completeBrowserCall() {
+    const callId = activeBrowserCallId.value
+    activeBrowserCallId.value = null
+    callStage.value = 'review'
+    if (!callId) return
+
+    window.setTimeout(async () => {
+      try {
+        await loadWorkspace()
+        selectedCallId.value = callId
+      } catch {
+        // The webhook path remains the source of truth.
+      }
+    }, 3500)
+  }
+
+  function buildTranscriptDataFromNotes(notes: string) {
+    return notes
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((text) => ({ speaker: 'caller' as const, text }))
+  }
+
   async function finishLiveCall(durationSeconds = 0) {
     const prospect = selectedProspect.value
     if (!prospect) return
@@ -554,6 +640,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           status: 'completed',
           duration_seconds: durationSeconds,
           transcript: completedReplay.transcriptPreview,
+          transcript_data: buildTranscriptDataFromNotes(completedReplay.transcriptPreview),
           notes: callNotes.value.trim() || null,
           ai_summary: completedReplay.summary,
           global_score: completedReplay.score,
@@ -580,6 +667,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         duration_seconds: durationSeconds,
         notes: callNotes.value.trim() || null,
         transcript: callNotes.value.trim() || null,
+        transcript_data: buildTranscriptDataFromNotes(callNotes.value),
         ai_summary: 'Call completed. AI scorecard is ready with five coaching criteria.',
         global_score: callScore,
         tags: [selectedQuickAction.value],
@@ -627,7 +715,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         difficulty: 'Balanced',
         objection_type: call.tags[0] || 'Tool fatigue',
         prospect_behavior: 'Skeptical but fair',
-        simulation_mode: 'Free voice replay',
+        simulation_mode: 'Text replay',
         messages: [
           {
             speaker: 'ai',
@@ -642,9 +730,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const session = mapReplaySession(created)
       replaySessions.value = [session, ...replaySessions.value.filter((item) => item.id !== session.id)]
       selectedReplaySessionId.value = session.id
-      activePage.value = 'call'
-      callStage.value = 'live'
-      pushToast('Voice replay call created. Simulation is ready.', 'info')
+      activePage.value = 'replay'
+      callStage.value = 'prep'
+      pushToast('Text replay created. AI client is ready.', 'info')
     } catch {
       const localReplay: CallRecord = {
         ...call,
@@ -655,19 +743,44 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         score: averageMetricScore(buildPerformanceMetrics(clampScore(call.score + 9), call.score)),
         metrics: buildPerformanceMetrics(clampScore(call.score + 9), call.score),
         summary: 'Local mock replay started from the original call.',
-        transcriptPreview: 'Voice-only AI replay. Transcript will be attached after the simulated call.',
+        transcriptPreview: 'Text AI replay. Transcript will be attached after the simulated call.',
         tags: ['AI replay', `source_call_id:${call.id}`],
       }
       callRecords.value = [localReplay, ...callRecords.value]
       selectedCallId.value = localReplay.id
-      activePage.value = 'call'
-      callStage.value = 'live'
+      activePage.value = 'replay'
+      callStage.value = 'prep'
       pushToast('AI replay opened with a local mocked call.', 'info')
+    }
+  }
+
+  async function sendReplayText(text: string): Promise<boolean> {
+    const session = selectedReplaySession.value
+    const message = text.trim()
+    if (!session || !message) return false
+
+    const previousSession = { ...session, messages: [...session.messages] }
+    const optimisticSession: ReplaySession = {
+      ...session,
+      messages: [...session.messages, { id: Date.now(), speaker: 'seller', text: message }],
+    }
+    replaySessions.value = replaySessions.value.map((item) => (item.id === session.id ? optimisticSession : item))
+
+    try {
+      const updated = mapReplaySession(await sendReplayMessage(session.id, message))
+      replaySessions.value = replaySessions.value.map((item) => (item.id === updated.id ? updated : item))
+      selectedReplaySessionId.value = updated.id
+      return true
+    } catch (error) {
+      replaySessions.value = replaySessions.value.map((item) => (item.id === session.id ? previousSession : item))
+      pushToast(error instanceof Error ? error.message : 'AI client could not answer.', 'error')
+      return false
     }
   }
 
   return {
     activePage,
+    activeBrowserCallId,
     aiReview,
     callNotes,
     callRecords,
@@ -683,6 +796,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     replaySessions,
     selectedCall,
     selectedProspect,
+    selectedReplaySession,
     selectedQuickAction,
     settings,
     sidebarCollapsed,
@@ -691,13 +805,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     addStatusOption,
     archiveProspect,
     beginLiveCall,
+    beginBrowserCall,
+    completeBrowserCall,
     dismissToast,
     finishLiveCall,
+    failBrowserCall,
     loadWorkspace,
     prepareProspectCall,
     pushToast,
     replayCall,
     restoreSession,
+    sendReplayText,
     selectCall,
     selectProspect,
     saveProspect,

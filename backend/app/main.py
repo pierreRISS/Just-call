@@ -1,8 +1,12 @@
 import logging
+import tempfile
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated
 from urllib.parse import parse_qs
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+import httpx
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -12,8 +16,15 @@ from twilio.jwt.access_token.grants import VoiceGrant
 from twilio.rest import Client
 from twilio.twiml.voice_response import Dial, VoiceResponse
 
+from app.ai_coach import (
+    generate_replay_reply,
+    generate_review,
+    normalize_transcript,
+    structure_transcript_text,
+    transcribe_audio_file,
+)
 from app.config import settings
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models import AIReview, Prospect, ReplaySession, SalesCall, User, UserSettings
 from app.schemas import (
     AIReviewCreate,
@@ -32,6 +43,7 @@ from app.schemas import (
     ReplaySessionCreate,
     ReplaySessionRead,
     ReplaySessionUpdate,
+    ReplayMessageCreate,
     UserRead,
     UserSettingsRead,
     UserSettingsUpdate,
@@ -102,6 +114,80 @@ def current_user_dependency(
 
 
 CurrentUser = Annotated[User, Depends(current_user_dependency)]
+
+
+def maybe_generate_call_review(call: SalesCall, db: Session) -> AIReview | None:
+    if call.status != "completed":
+        return None
+
+    try:
+        review_payload = generate_review(call.transcript_data, call.transcript)
+    except Exception:
+        logger.exception("AI review generation failed for call %s", call.id)
+        return None
+
+    if review_payload is None:
+        return None
+
+    review = db.scalar(select(AIReview).where(AIReview.call_id == call.id))
+    if review is None:
+        review = AIReview(user_id=call.user_id, call_id=call.id, **review_payload)
+        db.add(review)
+    else:
+        for field_name, value in review_payload.items():
+            setattr(review, field_name, value)
+
+    call.global_score = review_payload["global_score"]
+    call.ai_summary = review_payload["summary"]
+    db.commit()
+    db.refresh(review)
+    db.refresh(call)
+    return review
+
+
+def download_twilio_recording(recording_url: str) -> bytes:
+    if not settings.twilio_account_sid or not settings.twilio_auth_token:
+        raise ValueError("Twilio is not configured.")
+
+    media_url = recording_url if recording_url.endswith((".mp3", ".wav")) else f"{recording_url}.mp3"
+    with httpx.Client(timeout=60) as client:
+        response = client.get(
+            media_url,
+            auth=(settings.twilio_account_sid, settings.twilio_auth_token),
+        )
+        response.raise_for_status()
+        return response.content
+
+
+def process_call_recording(call_id: int, recording_url: str) -> None:
+    db = SessionLocal()
+    temp_path = None
+    try:
+        call = db.get(SalesCall, call_id)
+        if call is None:
+            logger.warning("Recording callback references missing call %s", call_id)
+            return
+
+        audio_bytes = download_twilio_recording(recording_url)
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as audio_file:
+            audio_file.write(audio_bytes)
+            temp_path = audio_file.name
+
+        transcript = transcribe_audio_file(Path(temp_path))
+        transcript_data = structure_transcript_text(transcript)
+        call.recording_url = recording_url
+        call.transcript = transcript
+        call.transcript_data = transcript_data
+        call.status = "completed"
+        db.commit()
+        db.refresh(call)
+        maybe_generate_call_review(call, db)
+    except Exception:
+        logger.exception("Recording processing failed for call %s", call_id)
+    finally:
+        if temp_path is not None:
+            Path(temp_path).unlink(missing_ok=True)
+        db.close()
 
 
 @app.post("/auth/login", response_model=AuthSessionRead)
@@ -244,6 +330,7 @@ def create_call(payload: CallCreate, user: CurrentUser, db: Annotated[Session, D
         data["prospect_name"] = data["prospect_name"] or prospect.name
         data["company"] = data["company"] or prospect.company
         data["phone_number"] = data["phone_number"] or prospect.phone_number
+    data["transcript_data"] = normalize_transcript(data.get("transcript_data"), data.get("transcript"))
     if not data.get("prospect_name") or not data.get("phone_number"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -257,7 +344,10 @@ def create_call(payload: CallCreate, user: CurrentUser, db: Annotated[Session, D
     db.add(call)
     db.commit()
     db.refresh(call)
-    return call
+    maybe_generate_call_review(call, db)
+    return db.scalar(
+        select(SalesCall).options(selectinload(SalesCall.ai_review)).where(SalesCall.id == call.id)
+    ) or call
 
 
 @app.get("/calls/{call_id}", response_model=CallRead)
@@ -281,12 +371,24 @@ def update_call(
     if call is None or call.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found.")
 
-    for field_name, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    for field_name, value in updates.items():
         setattr(call, field_name, value)
+    if "transcript" in updates or "transcript_data" in updates:
+        call.transcript_data = normalize_transcript(call.transcript_data, call.transcript)
 
     db.commit()
     db.refresh(call)
-    return call
+    if call.status == "completed" and (
+        "status" in updates
+        or "transcript" in updates
+        or "transcript_data" in updates
+        or call.ai_review is None
+    ):
+        maybe_generate_call_review(call, db)
+    return db.scalar(
+        select(SalesCall).options(selectinload(SalesCall.ai_review)).where(SalesCall.id == call.id)
+    ) or call
 
 
 @app.delete("/calls/{call_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -393,6 +495,54 @@ def update_replay_session(
     for field_name, value in payload.model_dump(exclude_unset=True, mode="json").items():
         setattr(replay_session, field_name, value)
 
+    db.commit()
+    db.refresh(replay_session)
+    return replay_session
+
+
+@app.post("/replay-sessions/{replay_session_id}/messages", response_model=ReplaySessionRead)
+def send_replay_message(
+    replay_session_id: int,
+    payload: ReplayMessageCreate,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> ReplaySession:
+    replay_session = db.get(ReplaySession, replay_session_id)
+    if replay_session is None or replay_session.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Replay session not found.")
+
+    source_call = db.get(SalesCall, replay_session.call_id) if replay_session.call_id is not None else None
+    if source_call is not None and source_call.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found.")
+
+    current_messages = list(replay_session.messages or [])
+    seller_message = {"speaker": "seller", "text": payload.text}
+    messages_for_ai = [*current_messages, seller_message]
+
+    try:
+        ai_text = generate_replay_reply(
+            source_transcript_data=source_call.transcript_data if source_call else None,
+            source_transcript_text=source_call.transcript if source_call else None,
+            messages=messages_for_ai,
+            seller_message=payload.text,
+            difficulty=replay_session.difficulty,
+            prospect_behavior=replay_session.prospect_behavior,
+            objection_type=replay_session.objection_type,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Replay generation failed for session %s", replay_session.id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="AI replay could not generate a client response.",
+        ) from exc
+
+    replay_session.messages = [
+        *messages_for_ai,
+        {"speaker": "ai", "text": ai_text or "Je vois. Et concretement, pourquoi je devrais changer maintenant ?"},
+    ]
+    replay_session.status = "active"
     db.commit()
     db.refresh(replay_session)
     return replay_session
@@ -514,10 +664,21 @@ async def voice_twiml_response(request: Request) -> Response:
 
     if request.method == "GET":
         to_number = (request.query_params.get("To") or "").strip()
+        call_id = (request.query_params.get("CallId") or "").strip()
+        record_consent = (request.query_params.get("RecordConsent") or "").strip()
     else:
         raw_body = (await request.body()).decode("utf-8")
         form_payload = parse_qs(raw_body)
         to_number = (form_payload.get("To") or [""])[0].strip()
+        call_id = (form_payload.get("CallId") or [""])[0].strip()
+        record_consent = (form_payload.get("RecordConsent") or [""])[0].strip()
+        twilio_sid = (form_payload.get("CallSid") or [""])[0].strip()
+        if call_id and twilio_sid:
+            with SessionLocal() as db:
+                call = db.get(SalesCall, int(call_id)) if call_id.isdigit() else None
+                if call is not None:
+                    call.twilio_sid = twilio_sid
+                    db.commit()
 
     logger.info("Twilio Voice webhook received: method=%s to=%s", request.method, to_number or "<missing>")
 
@@ -527,11 +688,79 @@ async def voice_twiml_response(request: Request) -> Response:
         logger.warning("Twilio Voice webhook missing To parameter.")
         return Response(content=str(response), media_type="application/xml")
 
-    dial = Dial(caller_id=settings.twilio_phone_number)
+    dial_action_url = str(request.url_for("voice_dial_status")).replace("http://", "https://")
+    recording_callback_url = str(request.url_for("voice_recording_status")).replace("http://", "https://")
+    if call_id:
+        dial_action_url = f"{dial_action_url}?call_id={call_id}"
+        recording_callback_url = f"{recording_callback_url}?call_id={call_id}"
+
+    dial_kwargs = {
+        "caller_id": settings.twilio_phone_number,
+        "action": dial_action_url,
+        "method": "POST",
+    }
+    if record_consent == "true":
+        dial_kwargs.update(
+            {
+                "record": "record-from-answer-dual",
+                "recording_status_callback": recording_callback_url,
+                "recording_status_callback_method": "POST",
+                "recording_status_callback_event": "completed",
+            }
+        )
+
+    dial = Dial(**dial_kwargs)
     dial.number(to_number)
     response.append(dial)
 
     return Response(content=str(response), media_type="application/xml")
+
+
+@app.post("/voice/dial-status")
+async def voice_dial_status(request: Request) -> Response:
+    raw_body = (await request.body()).decode("utf-8")
+    form_payload = parse_qs(raw_body)
+    call_id = (request.query_params.get("call_id") or "").strip()
+    dial_status = (form_payload.get("DialCallStatus") or [""])[0].strip()
+    duration = (form_payload.get("DialCallDuration") or ["0"])[0].strip()
+    parent_sid = (form_payload.get("CallSid") or [""])[0].strip()
+
+    if call_id.isdigit():
+        with SessionLocal() as db:
+            call = db.get(SalesCall, int(call_id))
+            if call is not None:
+                call.status = "completed" if dial_status == "completed" else "failed"
+                call.duration_seconds = int(duration) if duration.isdigit() else call.duration_seconds
+                call.twilio_sid = call.twilio_sid or parent_sid or None
+                call.ended_at = datetime.now(UTC)
+                db.commit()
+
+    response = VoiceResponse()
+    response.hangup()
+    return Response(content=str(response), media_type="application/xml")
+
+
+@app.post("/voice/recording-status")
+async def voice_recording_status(
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, str]:
+    raw_body = (await request.body()).decode("utf-8")
+    form_payload = parse_qs(raw_body)
+    call_id = (request.query_params.get("call_id") or "").strip()
+    recording_url = (form_payload.get("RecordingUrl") or [""])[0].strip()
+    recording_status = (form_payload.get("RecordingStatus") or [""])[0].strip()
+
+    if call_id.isdigit() and recording_url and recording_status in {"completed", "absent"}:
+        with SessionLocal() as db:
+            call = db.get(SalesCall, int(call_id))
+            if call is not None:
+                call.recording_url = recording_url
+                db.commit()
+        if recording_status == "completed":
+            background_tasks.add_task(process_call_recording, int(call_id), recording_url)
+
+    return {"status": "ok"}
 
 
 @app.get("/voice/twiml")

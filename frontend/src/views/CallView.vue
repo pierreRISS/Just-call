@@ -1,16 +1,24 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { getVoiceConfig, type BackendVoiceConfig } from '../api/client'
 import AiReviewCard from '../components/AiReviewCard.vue'
 import LumaSurface from '../components/LumaSurface.vue'
 import NotesPanel from '../components/NotesPanel.vue'
 import ProspectPanel from '../components/ProspectPanel.vue'
 import Waveform from '../components/Waveform.vue'
+import { useMicrophoneLevels } from '../composables/useMicrophoneLevels'
+import { useTwilioVoice } from '../composables/useTwilioVoice'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const workspace = useWorkspaceStore()
 const isProspectOpen = ref(true)
-const isMuted = ref(false)
-const seconds = ref(764)
+const seconds = ref(0)
+const recordingConsent = ref(false)
+const isStartingVoiceCall = ref(false)
+const voiceConfig = ref<BackendVoiceConfig | null>(null)
+const voice = useTwilioVoice()
+const microphone = useMicrophoneLevels()
+let timerId = 0
 
 const quickActions = ['Interested', 'Follow-up', 'Meeting booked', 'Send email', 'Budget issue', 'Not interested']
 const isReplayCall = computed(() => Boolean(workspace.selectedCall?.sourceCallId))
@@ -56,6 +64,75 @@ function saveNotes() {
 function replayReview() {
   workspace.replayCall(workspace.selectedCall)
 }
+
+async function startVoiceCall() {
+  if (isStartingVoiceCall.value) return
+
+  isStartingVoiceCall.value = true
+  const call = await workspace.beginBrowserCall(recordingConsent.value)
+  if (!call) {
+    isStartingVoiceCall.value = false
+    return
+  }
+
+  try {
+    await microphone.start()
+    await voice.connect({
+      to: workspace.selectedProspect.phone,
+      callId: call.id,
+      recordConsent: recordingConsent.value,
+    })
+    seconds.value = 0
+    window.clearInterval(timerId)
+    timerId = window.setInterval(() => {
+      seconds.value += 1
+    }, 1000)
+  } catch (error) {
+    microphone.stop()
+    await workspace.failBrowserCall(call.id)
+    workspace.pushToast(error instanceof Error ? error.message : 'Twilio call could not start.', 'error')
+  } finally {
+    isStartingVoiceCall.value = false
+  }
+}
+
+function toggleMute() {
+  voice.setMuted(!voice.isMuted.value)
+}
+
+function endVoiceCall() {
+  voice.hangup()
+}
+
+watch(
+  () => voice.status.value,
+  async (status) => {
+    if (status !== 'ended') return
+    window.clearInterval(timerId)
+    microphone.stop()
+    await workspace.completeBrowserCall()
+    workspace.pushToast(
+      recordingConsent.value
+        ? 'Call ended. Recording is being transcribed for AI review.'
+        : 'Call ended. No recording was requested.',
+      'info',
+    )
+  },
+)
+
+onMounted(async () => {
+  try {
+    voiceConfig.value = await getVoiceConfig()
+  } catch {
+    voiceConfig.value = null
+  }
+})
+
+onBeforeUnmount(() => {
+  window.clearInterval(timerId)
+  microphone.stop()
+  voice.destroy()
+})
 </script>
 
 <template>
@@ -100,10 +177,18 @@ function replayReview() {
           <button
             type="button"
             class="mt-12 rounded-full bg-stone-950 px-7 py-3 text-sm font-semibold text-white shadow-[0_22px_60px_rgba(28,25,23,0.18)] transition hover:-translate-y-0.5"
-            @click="workspace.beginLiveCall"
+            :disabled="isStartingVoiceCall || voiceConfig?.is_ready === false"
+            @click="startVoiceCall"
           >
-            Start Call
+            {{ isStartingVoiceCall ? 'Connecting...' : 'Start Call' }}
           </button>
+          <label class="mt-5 flex max-w-xl items-start gap-3 text-sm font-semibold leading-6 text-stone-600">
+            <input v-model="recordingConsent" type="checkbox" class="mt-1 h-4 w-4 accent-stone-950">
+            <span>I confirm the prospect has agreed to be recorded. If unchecked, the call starts without recording.</span>
+          </label>
+          <p v-if="voiceConfig?.is_ready === false" class="mt-4 text-sm font-semibold text-rose-700">
+            Twilio is missing: {{ voiceConfig.missing.join(', ') }}.
+          </p>
         </LumaSurface>
 
         <ProspectPanel :prospect="workspace.selectedProspect" />
@@ -123,10 +208,13 @@ function replayReview() {
                 </p>
               </div>
 
-              <Waveform active />
+              <Waveform active :levels="microphone.levels.value" />
 
               <div class="flex flex-wrap items-center justify-center gap-3">
                 <span class="rounded-full bg-white/60 px-4 py-2 font-mono text-sm font-semibold text-stone-700 shadow-sm">{{ timerLabel }}</span>
+                <span class="rounded-full bg-white/60 px-4 py-2 text-sm font-semibold text-stone-650 shadow-sm">
+                  {{ voice.status.value }}
+                </span>
                 <select
                   v-model="workspace.selectedQuickAction"
                   class="rounded-full border border-white/70 bg-white/60 px-4 py-2 text-sm font-semibold text-stone-650 shadow-sm outline-none backdrop-blur-xl"
@@ -136,9 +224,9 @@ function replayReview() {
                 <button
                   type="button"
                   class="rounded-full border border-white/70 bg-white/50 px-4 py-2 text-sm font-semibold text-stone-650 shadow-sm backdrop-blur-xl transition hover:bg-white hover:text-stone-950"
-                  @click="isMuted = !isMuted"
+                  @click="toggleMute"
                 >
-                  {{ isMuted ? 'Unmute' : 'Mute' }}
+                  {{ voice.isMuted.value ? 'Unmute' : 'Mute' }}
                 </button>
                 <button
                   type="button"
@@ -150,11 +238,14 @@ function replayReview() {
                 <button
                   type="button"
                   class="rounded-full bg-stone-950 px-5 py-2 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(28,25,23,0.18)] transition hover:-translate-y-0.5"
-                  @click="workspace.finishLiveCall(seconds)"
+                  @click="endVoiceCall"
                 >
                   End call
                 </button>
               </div>
+              <p v-if="voice.errorMessage.value" class="max-w-xl text-sm font-semibold text-rose-700">
+                {{ voice.errorMessage.value }}
+              </p>
             </div>
           </LumaSurface>
 

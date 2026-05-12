@@ -7,6 +7,7 @@ export type Metric = {
   label: string
   score: number
   delta: string
+  comment?: string | null
 }
 
 export type Prospect = {
