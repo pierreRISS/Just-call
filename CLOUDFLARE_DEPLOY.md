@@ -51,7 +51,7 @@ For the backend CORS allowlist, add the frontend production domain to:
 FRONTEND_ORIGINS=https://your-domain.com,https://just-call.pages.dev
 ```
 
-For the free Render backend path, see [RENDER_DEPLOY.md](./RENDER_DEPLOY.md).
+For the free Render backend path, s ee [RENDER_DEPLOY.md](./RENDER_DEPLOY.md).
 
 ## Recommended public setup
 
