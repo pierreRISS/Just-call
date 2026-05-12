@@ -638,6 +638,8 @@ def get_voice_config() -> VoiceConfigRead:
         is_ready=not missing,
         missing=missing,
         phone_number=settings.twilio_phone_number,
+        account_sid_tail=settings.twilio_account_sid[-6:] if settings.twilio_account_sid else None,
+        twiml_app_sid_tail=settings.twilio_twiml_app_sid[-6:] if settings.twilio_twiml_app_sid else None,
     )
 
 
@@ -695,8 +697,10 @@ async def voice_twiml_response(request: Request) -> Response:
     normalized_to_number = normalize_outbound_phone_number(to_number)
 
     logger.info(
-        "Twilio Voice webhook received: method=%s to=%s normalized=%s",
+        "Twilio Voice webhook received: method=%s account_tail=%s app_tail=%s to=%s normalized=%s",
         request.method,
+        settings.twilio_account_sid[-6:] if settings.twilio_account_sid else "<missing>",
+        settings.twilio_twiml_app_sid[-6:] if settings.twilio_twiml_app_sid else "<missing>",
         to_number or "<missing>",
         normalized_to_number or "<invalid>",
     )

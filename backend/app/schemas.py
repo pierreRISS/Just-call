@@ -355,3 +355,5 @@ class VoiceConfigRead(BaseModel):
     is_ready: bool
     missing: list[str]
     phone_number: str | None
+    account_sid_tail: str | None = None
+    twiml_app_sid_tail: str | None = None
