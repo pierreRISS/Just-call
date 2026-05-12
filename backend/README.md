@@ -42,10 +42,10 @@ TWILIO_API_KEY_SECRET=...
 TWILIO_TWIML_APP_SID=AP...
 ```
 
-When testing locally, expose the backend with ngrok and set the TwiML App Voice Request URL:
+Use the deployed backend as the TwiML App Voice Request URL:
 
 ```text
-https://your-ngrok-url.ngrok-free.app/voice/twiml
+https://just-call-api.onrender.com/voice/twiml
 ```
 
 ## Routes

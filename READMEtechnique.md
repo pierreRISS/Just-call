@@ -11,18 +11,11 @@ Full-stack call cadence app for cold calling sessions:
 ./scripts/dev.sh
 ```
 
-For Twilio Voice local testing, start the backend tunnel too:
+For Twilio Voice, use the deployed backend as the TwiML App Voice Request URL:
 
-```bash
-./scripts/dev.sh --ngrok
+```text
+https://just-call-api.onrender.com/voice/twiml
 ```
-
-This requires the `ngrok` CLI to be installed and authenticated first. If
-`http://127.0.0.1:4040` refuses the connection, ngrok is not running.
-
-Then open `http://127.0.0.1:4040`, copy the ngrok HTTPS URL, and use
-`https://your-ngrok-url/voice/twiml` as the TwiML App Voice Request URL in
-Twilio.
 
 ## Start PostgreSQL
 

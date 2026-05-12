@@ -2,11 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WITH_NGROK=false
-
-if [[ "${1:-}" == "--ngrok" ]]; then
-  WITH_NGROK=true
-fi
 
 PIDS=()
 
@@ -52,25 +47,12 @@ echo "Starting frontend on http://localhost:5173..."
 (cd "$ROOT_DIR/frontend" && npm run dev -- --port 5173) &
 PIDS+=("$!")
 
-if [[ "$WITH_NGROK" == true ]]; then
-  if command -v ngrok >/dev/null 2>&1; then
-    echo "Starting ngrok tunnel for backend..."
-    ngrok http 8000 &
-    PIDS+=("$!")
-  else
-    echo "ngrok is not installed. Install it, then run: ./scripts/dev.sh --ngrok"
-  fi
-fi
-
 echo
 echo "Ready:"
 echo "- Frontend: http://localhost:5173"
 echo "- Backend:  http://localhost:8000"
-if [[ "$WITH_NGROK" == true ]]; then
-  echo "- ngrok:    open http://127.0.0.1:4040 to copy the public HTTPS URL"
-  echo "            Twilio Voice URL: https://your-ngrok-url/voice/twiml"
-fi
+echo "- Twilio Voice URL for production: https://just-call-api.onrender.com/voice/twiml"
 echo
-echo "Press Ctrl+C to stop backend/frontend/ngrok. PostgreSQL stays running in Docker."
+echo "Press Ctrl+C to stop backend/frontend. PostgreSQL stays running in Docker."
 
 wait
