@@ -1,4 +1,5 @@
 import logging
+import re
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -619,6 +620,17 @@ def missing_voice_config() -> list[str]:
     return [name for name, value in required_values.items() if not value]
 
 
+def normalize_outbound_phone_number(raw_number: str) -> str | None:
+    number = raw_number.strip().replace(" ", "").replace(".", "").replace("-", "").replace("(", "").replace(")", "")
+    if number.startswith("00"):
+        number = f"+{number[2:]}"
+    if number.startswith("0") and len(number) == 10 and number[1:].isdigit():
+        number = f"+33{number[1:]}"
+    if re.fullmatch(r"\+[1-9]\d{7,14}", number):
+        return number
+    return None
+
+
 @app.get("/voice/config", response_model=VoiceConfigRead)
 def get_voice_config() -> VoiceConfigRead:
     missing = missing_voice_config()
@@ -680,12 +692,23 @@ async def voice_twiml_response(request: Request) -> Response:
                     call.twilio_sid = twilio_sid
                     db.commit()
 
-    logger.info("Twilio Voice webhook received: method=%s to=%s", request.method, to_number or "<missing>")
+    normalized_to_number = normalize_outbound_phone_number(to_number)
+
+    logger.info(
+        "Twilio Voice webhook received: method=%s to=%s normalized=%s",
+        request.method,
+        to_number or "<missing>",
+        normalized_to_number or "<invalid>",
+    )
 
     response = VoiceResponse()
     if not to_number:
         response.say("Missing destination number.")
         logger.warning("Twilio Voice webhook missing To parameter.")
+        return Response(content=str(response), media_type="application/xml")
+    if normalized_to_number is None:
+        response.say("Invalid destination number. Use international phone number format.")
+        logger.warning("Twilio Voice webhook invalid To parameter: %s", to_number)
         return Response(content=str(response), media_type="application/xml")
 
     dial_action_url = str(request.url_for("voice_dial_status")).replace("http://", "https://")
@@ -707,10 +730,10 @@ async def voice_twiml_response(request: Request) -> Response:
                 "recording_status_callback_method": "POST",
                 "recording_status_callback_event": "completed",
             }
-        )
+    )
 
     dial = Dial(**dial_kwargs)
-    dial.number(to_number)
+    dial.number(normalized_to_number)
     response.append(dial)
 
     return Response(content=str(response), media_type="application/xml")
