@@ -23,4 +23,4 @@ The product is now shaped around a calm premium workflow:
 ```
 
 The dev script  starts PostgreSQL, ru ns Alembic migrations, seeds the default
-workspace, and starts both backend and frontend.
+workspace, and starts both backend and fr ontend.
