@@ -80,7 +80,7 @@ const comparison = computed(() => {
                 class="rounded-full bg-stone-950 px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(28,25,23,0.2)] transition hover:-translate-y-0.5"
                 @click="$emit('replay', call)"
               >
-                Start simulation
+                Lancer la simulation
               </button>
             </div>
             <p class="mt-5 text-sm font-medium leading-6 text-stone-650">{{ call.summary }}</p>

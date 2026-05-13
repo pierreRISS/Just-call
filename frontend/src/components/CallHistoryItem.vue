@@ -38,7 +38,7 @@ const isReplay = computed(() => Boolean(props.call.sourceCallId))
         class="rounded-full border border-white/70 bg-white/55 px-4 py-2 text-sm font-semibold text-stone-700 shadow-sm backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-white"
         @click="isReplay ? $emit('select', call) : $emit('replay', call)"
       >
-        {{ isReplay ? 'Review replay' : 'Replay call' }}
+        {{ isReplay ? 'Review replay' : 'Jouer IA' }}
       </button>
     </div>
   </article>

@@ -19,6 +19,7 @@ const navItems: Array<{ id: PageId; label: string }> = [
   { id: 'home', label: 'Home' },
   { id: 'prospects', label: 'Prospects' },
   { id: 'history', label: 'Calls' },
+  { id: 'replay', label: 'Jouer IA' },
   { id: 'analytics', label: 'Analytics' },
 ]
 
@@ -62,9 +63,7 @@ onMounted(() => {
             </h1>
           </div>
 
-          <div class="flex items-center gap-3 rounded-full border border-white/70 bg-white/45 px-3 py-2 shadow-[0_18px_60px_rgba(60,45,25,0.08)] backdrop-blur-2xl">
-            <span class="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_0_5px_rgba(52,211,153,0.14)]" />
-            <span class="hidden text-sm font-medium text-stone-600 sm:inline">Ready for calm execution</span>
+          <div class="flex items-center gap-3">
             <button
               type="button"
               class="grid h-9 w-9 place-items-center rounded-full bg-stone-950 text-sm font-semibold text-white"

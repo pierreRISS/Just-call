@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   BarChart3,
+  Bot,
   Home,
   LogOut,
   PanelLeftClose,
@@ -18,6 +19,7 @@ const navItems: Array<{ id: PageId; label: string; icon: LucideIcon }> = [
   { id: 'home', label: 'Home', icon: Home },
   { id: 'prospects', label: 'Prospects', icon: Users },
   { id: 'history', label: 'Calls', icon: PhoneCall },
+  { id: 'replay', label: 'Jouer IA', icon: Bot },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
 ]
 </script>

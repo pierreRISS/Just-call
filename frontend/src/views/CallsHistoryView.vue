@@ -16,9 +16,9 @@ function openCall(call: CallRecord) {
   isDrawerOpen.value = true
 }
 
-async function startReplay(call: CallRecord) {
+function startReplay(call: CallRecord) {
   isDrawerOpen.value = false
-  await workspace.replayCall(call)
+  workspace.replayCall(call)
 }
 </script>
 

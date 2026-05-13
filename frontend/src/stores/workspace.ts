@@ -23,7 +23,7 @@ import {
   type BackendSettings,
   type BackendUser,
 } from '../api/client'
-import { aiReview as fallbackAiReview, callRecords as fallbackCalls, metrics, prospects as fallbackProspects, replayMessages as fallbackReplayMessages } from '../mockData'
+import { aiReview as fallbackAiReview, callRecords as fallbackCalls, metrics, prospects as fallbackProspects } from '../mockData'
 import type {
   AiReview,
   CallRecord,
@@ -43,7 +43,7 @@ const pageTitles: Record<PageId, string> = {
   prospects: 'Prospects',
   call: 'Call workspace',
   history: 'Calls',
-  replay: 'AI replay',
+  replay: 'Jouer IA',
   analytics: 'Analytics',
   profile: 'Profile',
   settings: 'Settings',
@@ -321,11 +321,23 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     () => callRecords.value.find((call) => call.id === selectedCallId.value) ?? callRecords.value[0],
   )
   const selectedReplaySession = computed(
-    () => replaySessions.value.find((session) => session.id === selectedReplaySessionId.value) ?? replaySessions.value[0] ?? null,
+    () => replaySessions.value.find((session) => session.id === selectedReplaySessionId.value) ?? null,
   )
-  const replayMessages = computed<ReplayMessage[]>(() => selectedReplaySession.value?.messages ?? fallbackReplayMessages)
+  const replayMessages = computed<ReplayMessage[]>(() => selectedReplaySession.value?.messages ?? [])
 
   function setPage(page: PageId) {
+    if (page === 'replay' && activePage.value !== 'replay') {
+      const currentCall = selectedCall.value
+      const sourceCall = currentCall?.sourceCallId
+        ? callRecords.value.find((call) => call.id === currentCall.sourceCallId)
+        : currentCall
+      const firstOriginalCall = callRecords.value.find((call) => !call.sourceCallId)
+
+      if (sourceCall || firstOriginalCall) selectedCallId.value = (sourceCall ?? firstOriginalCall)?.id ?? selectedCallId.value
+      selectedReplaySessionId.value = null
+      callStage.value = 'prep'
+      callNotes.value = ''
+    }
     activePage.value = page
   }
 
@@ -685,24 +697,38 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  async function replayCall(call: CallRecord) {
+  function prepareReplayCall(call: CallRecord) {
     selectCall(call)
+    selectedReplaySessionId.value = null
+    activePage.value = 'replay'
+    callStage.value = 'prep'
+    callNotes.value = ''
+    pushToast(`${call.prospectName} selected for AI practice.`, 'info')
+  }
+
+  function replayCall(call: CallRecord) {
+    prepareReplayCall(call.sourceCallId ? callRecords.value.find((item) => item.id === call.sourceCallId) ?? call : call)
+  }
+
+  async function beginReplaySimulation(call: CallRecord) {
+    const sourceCall = call.sourceCallId ? callRecords.value.find((item) => item.id === call.sourceCallId) ?? call : call
+    selectCall(sourceCall)
 
     try {
-      const replayMetrics = buildPerformanceMetrics(clampScore(call.score + 9), call.score)
+      const replayMetrics = buildPerformanceMetrics(clampScore(sourceCall.score + 9), sourceCall.score)
       const replayScore = averageMetricScore(replayMetrics)
       const replayCreated = await createCall({
-        prospect_id: call.prospectId || null,
-        prospect_name: call.prospectName,
-        company: call.company,
+        prospect_id: sourceCall.prospectId || null,
+        prospect_name: sourceCall.prospectName,
+        company: sourceCall.company,
         status: 'in_progress',
         quick_action: 'AI Replay',
         duration_seconds: 0,
-        notes: `AI replay simulation created from call #${call.id}.`,
+        notes: `AI replay simulation created from call #${sourceCall.id}.`,
         transcript: 'Voice-only AI replay. Transcript will be attached after the simulated call.',
         ai_summary: 'AI replay simulation started from the original call so the seller can practice without repeating the same mistakes.',
         global_score: replayScore,
-        tags: ['AI replay', `source_call_id:${call.id}`, ...(call.tags.length ? [call.tags[0]] : [])],
+        tags: ['AI replay', `source_call_id:${sourceCall.id}`, ...(sourceCall.tags.length ? [sourceCall.tags[0]] : [])],
         started_at: new Date().toISOString(),
       })
       const replayCallRecord = mapCall(replayCreated)
@@ -710,48 +736,94 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       selectedCallId.value = replayCallRecord.id
 
       const created = await createReplaySession({
-        call_id: call.id,
-        prospect_id: call.prospectId || null,
+        call_id: sourceCall.id,
+        prospect_id: sourceCall.prospectId || null,
         difficulty: 'Balanced',
-        objection_type: call.tags[0] || 'Tool fatigue',
+        objection_type: sourceCall.tags[0] || 'Tool fatigue',
         prospect_behavior: 'Skeptical but fair',
         simulation_mode: 'Text replay',
-        messages: [
-          {
-            speaker: 'ai',
-            text: 'I understand the promise, but my team already has too many tools.',
-          },
-          {
-            speaker: 'seller',
-            text: 'That is fair. Let me anchor this in the workflow you already have.',
-          },
-        ],
+        messages: [],
       })
       const session = mapReplaySession(created)
       replaySessions.value = [session, ...replaySessions.value.filter((item) => item.id !== session.id)]
       selectedReplaySessionId.value = session.id
       activePage.value = 'replay'
-      callStage.value = 'prep'
-      pushToast('Text replay created. AI client is ready.', 'info')
+      callStage.value = 'live'
+      callNotes.value = ''
+      pushToast('AI simulation started. You speak first.', 'info')
     } catch {
       const localReplay: CallRecord = {
-        ...call,
+        ...sourceCall,
         id: Date.now(),
-        sourceCallId: call.id,
+        sourceCallId: sourceCall.id,
         date: 'Just now',
         duration: '00:00',
-        score: averageMetricScore(buildPerformanceMetrics(clampScore(call.score + 9), call.score)),
-        metrics: buildPerformanceMetrics(clampScore(call.score + 9), call.score),
+        score: averageMetricScore(buildPerformanceMetrics(clampScore(sourceCall.score + 9), sourceCall.score)),
+        metrics: buildPerformanceMetrics(clampScore(sourceCall.score + 9), sourceCall.score),
         summary: 'Local mock replay started from the original call.',
         transcriptPreview: 'Text AI replay. Transcript will be attached after the simulated call.',
-        tags: ['AI replay', `source_call_id:${call.id}`],
+        tags: ['AI replay', `source_call_id:${sourceCall.id}`],
       }
-      callRecords.value = [localReplay, ...callRecords.value]
+      const localSession: ReplaySession = {
+        id: Date.now() + 1,
+        callId: sourceCall.id,
+        prospectId: sourceCall.prospectId || null,
+        difficulty: 'Balanced',
+        objectionType: sourceCall.tags[0] || 'Tool fatigue',
+        prospectBehavior: 'Skeptical but fair',
+        simulationMode: 'Text replay',
+        messages: [],
+      }
+      callRecords.value = attachReplayComparisons([localReplay, ...callRecords.value])
+      replaySessions.value = [localSession, ...replaySessions.value]
       selectedCallId.value = localReplay.id
+      selectedReplaySessionId.value = localSession.id
       activePage.value = 'replay'
-      callStage.value = 'prep'
-      pushToast('AI replay opened with a local mocked call.', 'info')
+      callStage.value = 'live'
+      callNotes.value = ''
+      pushToast('AI simulation started locally. You speak first.', 'info')
     }
+  }
+
+  async function finishReplaySimulation(durationSeconds = 0) {
+    const currentCall = selectedCall.value
+    if (!currentCall?.sourceCallId) return
+
+    const session = selectedReplaySession.value
+    const transcript = session?.messages.length
+      ? session.messages.map((message) => `${message.speaker === 'seller' ? 'Seller' : 'AI'}: ${message.text}`).join('\n')
+      : 'Simulation ended before any message was sent.'
+    const completedReplay: CallRecord = {
+      ...currentCall,
+      duration: formatDuration(durationSeconds),
+      summary: 'Replay completed. The new scorecard compares this practice run with the original call.',
+      transcriptPreview: transcript,
+      tags: currentCall.tags.includes('Completed replay') ? currentCall.tags : ['Completed replay', ...currentCall.tags],
+    }
+
+    callRecords.value = attachReplayComparisons(callRecords.value.map((call) => (call.id === currentCall.id ? completedReplay : call)))
+    aiReview.value = buildAiReviewFromCall(completedReplay)
+    callStage.value = 'review'
+
+    try {
+      const saved = await updateCall(currentCall.id, {
+        status: 'completed',
+        duration_seconds: durationSeconds,
+        transcript,
+        transcript_data: buildTranscriptDataFromNotes(transcript),
+        notes: transcript,
+        ai_summary: completedReplay.summary,
+        global_score: completedReplay.score,
+        tags: completedReplay.tags,
+        ended_at: new Date().toISOString(),
+      })
+      const mapped = attachReplayComparisons([mapCall(saved), ...callRecords.value.filter((call) => call.id !== currentCall.id)])[0]
+      callRecords.value = attachReplayComparisons(callRecords.value.map((call) => (call.id === currentCall.id ? mapped : call)))
+      aiReview.value = buildAiReviewFromCall(mapped)
+    } catch {
+      pushToast('Replay review generated locally.', 'info')
+    }
+    pushToast('Replay complete. Scorecard is ready.')
   }
 
   async function sendReplayText(text: string): Promise<boolean> {
@@ -808,9 +880,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     beginBrowserCall,
     completeBrowserCall,
     dismissToast,
+    beginReplaySimulation,
     finishLiveCall,
+    finishReplaySimulation,
     failBrowserCall,
     loadWorkspace,
+    prepareReplayCall,
     prepareProspectCall,
     pushToast,
     replayCall,
