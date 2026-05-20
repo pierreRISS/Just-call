@@ -34,6 +34,7 @@ const activeView = computed(() => {
 })
 
 onMounted(() => {
+  workspace.initializeNavigation()
   workspace.restoreSession()
 })
 </script>

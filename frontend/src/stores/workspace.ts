@@ -49,6 +49,8 @@ const pageTitles: Record<PageId, string> = {
   settings: 'Settings',
 }
 
+const pageIds: PageId[] = ['home', 'prospects', 'call', 'history', 'replay', 'analytics', 'profile', 'settings']
+
 const fallbackSettings: WorkspaceSettings = {
   audioInput: 'Studio microphone',
   noiseCleanup: 'Soft',
@@ -312,6 +314,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const aiReview = ref<AiReview>(fallbackAiReview)
   const toasts = ref<Toast[]>([])
   let toastId = 0
+  let isNavigationReady = false
 
   const pageTitle = computed(() => pageTitles[activePage.value])
   const selectedProspect = computed(
@@ -325,7 +328,22 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   )
   const replayMessages = computed<ReplayMessage[]>(() => selectedReplaySession.value?.messages ?? [])
 
-  function setPage(page: PageId) {
+  function parsePageFromLocation(): PageId {
+    const hashPage = window.location.hash.replace(/^#\/?/, '').split('?')[0]
+    return pageIds.includes(hashPage as PageId) ? (hashPage as PageId) : 'home'
+  }
+
+  function writePageToHistory(page: PageId, replace = false) {
+    const nextHash = `#/${page}`
+    if (window.location.hash === nextHash) return
+    if (replace) {
+      window.history.replaceState({ page }, '', nextHash)
+    } else {
+      window.history.pushState({ page }, '', nextHash)
+    }
+  }
+
+  function applyPage(page: PageId) {
     if (page === 'replay' && activePage.value !== 'replay') {
       const currentCall = selectedCall.value
       const sourceCall = currentCall?.sourceCallId
@@ -339,6 +357,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       callNotes.value = ''
     }
     activePage.value = page
+  }
+
+  function setPage(page: PageId, options: { replace?: boolean; syncHistory?: boolean } = {}) {
+    applyPage(page)
+    if (options.syncHistory !== false) writePageToHistory(page, options.replace)
+  }
+
+  function initializeNavigation() {
+    if (isNavigationReady) return
+    isNavigationReady = true
+    setPage(parsePageFromLocation(), { replace: true })
+    window.addEventListener('hashchange', () => {
+      applyPage(parsePageFromLocation())
+    })
   }
 
   function toggleSidebar() {
@@ -542,15 +574,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   function startCall() {
-    activePage.value = 'call'
     callStage.value = 'prep'
+    setPage('call')
     pushToast('Call workspace prepared.')
   }
 
   function prepareProspectCall(prospect: Prospect) {
     selectProspect(prospect)
-    activePage.value = 'call'
     callStage.value = 'prep'
+    setPage('call')
     callNotes.value = `Opening: use ${prospect.company} context.\n\nObjective:\n- ${prospect.callObjective}\n\nWatch for:\n- ${prospect.possibleObjections.join('\n- ')}`
     pushToast(`${prospect.name} prepared.`, 'info')
   }
@@ -704,8 +736,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function prepareReplayCall(call: CallRecord) {
     selectCall(call)
     selectedReplaySessionId.value = null
-    activePage.value = 'replay'
     callStage.value = 'prep'
+    setPage('replay')
     callNotes.value = ''
     pushToast(`${call.prospectName} selected for AI practice.`, 'info')
   }
@@ -751,8 +783,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const session = mapReplaySession(created)
       replaySessions.value = [session, ...replaySessions.value.filter((item) => item.id !== session.id)]
       selectedReplaySessionId.value = session.id
-      activePage.value = 'replay'
       callStage.value = 'live'
+      setPage('replay')
       callNotes.value = ''
       pushToast('AI simulation started. You speak first.', 'info')
     } catch {
@@ -782,8 +814,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       replaySessions.value = [localSession, ...replaySessions.value]
       selectedCallId.value = localReplay.id
       selectedReplaySessionId.value = localSession.id
-      activePage.value = 'replay'
       callStage.value = 'live'
+      setPage('replay')
       callNotes.value = ''
       pushToast('AI simulation started locally. You speak first.', 'info')
     }
@@ -888,6 +920,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     finishLiveCall,
     finishReplaySimulation,
     failBrowserCall,
+    initializeNavigation,
     loadWorkspace,
     prepareReplayCall,
     prepareProspectCall,
