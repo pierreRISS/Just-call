@@ -6,8 +6,8 @@ import { useWorkspaceStore } from '../stores/workspace'
 const workspace = useWorkspaceStore()
 const isSubmitting = ref(false)
 const form = reactive({
-  email: 'pierre@just-call.local',
-  password: 'justcall',
+  email: '',
+  password: '',
 })
 
 async function submit() {

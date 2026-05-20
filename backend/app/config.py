@@ -16,11 +16,11 @@ class Settings(BaseSettings):
     twilio_api_key_sid: str | None = None
     twilio_api_key_secret: str | None = None
     twilio_twiml_app_sid: str | None = None
-    twilio_voice_url: str = "http://demo.twilio.com/docs/voice.xml"
+    twilio_voice_url: str | None = None
     groq_api_key: str | None = Field(default=None, validation_alias=AliasChoices("GROQ_API_KEY", "API_KEY_GROQ"))
     groq_model: str = "openai/gpt-oss-120b"
     groq_transcription_model: str = "whisper-large-v3"
-    seed_on_startup: bool = True
+    seed_on_startup: bool = False
 
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8", extra="ignore")
 

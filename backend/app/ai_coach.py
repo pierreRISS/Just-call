@@ -237,6 +237,24 @@ def generate_replay_reply(
     return str(response.choices[0].message.content or "").strip()
 
 
+def generate_fallback_replay_reply(
+    *,
+    seller_message: str,
+    objection_type: str,
+    prospect_behavior: str,
+) -> str:
+    lowered = seller_message.casefold()
+    if any(word in lowered for word in ["prix", "budget", "cher", "cost", "price"]):
+        return "Je comprends, mais le budget est deja serre. Qu'est-ce qui me prouve que ca vaut vraiment le temps de mon equipe ?"
+    if any(word in lowered for word in ["rdv", "meeting", "demo", "demo", "call"]):
+        return "Pourquoi pas, mais je veux que ce soit tres concret. Qu'est-ce qu'on regarde exactement pendant ce rendez-vous ?"
+    if objection_type:
+        return f"Je vois l'idee, mais mon sujet reste {objection_type.lower()}. Pourquoi je devrais prioriser ca maintenant ?"
+    if prospect_behavior:
+        return "D'accord, mais je reste prudent. Donne-moi une raison simple de continuer cette conversation."
+    return "Je vois. Et concretement, pourquoi je devrais changer maintenant ?"
+
+
 def transcribe_audio_file(audio_path: Path) -> str:
     if not settings.groq_api_key:
         raise ValueError("Groq is not configured.")

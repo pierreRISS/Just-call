@@ -19,6 +19,7 @@ from twilio.twiml.voice_response import Dial, VoiceResponse
 
 from app.ai_coach import (
     generate_fallback_review,
+    generate_fallback_replay_reply,
     generate_replay_reply,
     generate_review,
     normalize_transcript,
@@ -52,11 +53,28 @@ from app.schemas import (
     VoiceConfigRead,
     VoiceTokenRead,
 )
-from app.security import create_session_token, hash_password, verify_password
+from app.security import create_session_token, verify_password
 from app.seed import seed_database
 
 app = FastAPI(title="Just Call API")
 logger = logging.getLogger("just-call.voice")
+
+DEFAULT_STATUS_OPTIONS = ["New", "Contacted", "Engaged", "Advancing", "Scheduled", "Converted", "Archived"]
+DEFAULT_NOTIFICATIONS = {
+    "post_call_review": True,
+    "follow_up_reminders": True,
+    "quiet_mode": True,
+}
+DEFAULT_AI_PREFERENCES = {
+    "feedback_tone": "Encouraging",
+    "replay_difficulty": "Balanced",
+    "coaching_style": "Concise",
+}
+DEFAULT_INTEGRATIONS = {
+    "crm": "not_configured",
+    "calendar": "not_configured",
+    "email": "not_configured",
+}
 
 app.add_middleware(
     CORSMiddleware,
@@ -147,6 +165,13 @@ def maybe_generate_call_review(call: SalesCall, db: Session) -> AIReview | None:
     return review
 
 
+def apply_settings_defaults(settings_row: UserSettings) -> None:
+    settings_row.notifications = settings_row.notifications or DEFAULT_NOTIFICATIONS.copy()
+    settings_row.ai_preferences = settings_row.ai_preferences or DEFAULT_AI_PREFERENCES.copy()
+    settings_row.integrations = settings_row.integrations or DEFAULT_INTEGRATIONS.copy()
+    settings_row.status_options = settings_row.status_options or DEFAULT_STATUS_OPTIONS.copy()
+
+
 def complete_call_with_fallback_review(call: SalesCall, db: Session, *, reason: str) -> None:
     now = datetime.now(UTC)
     existing_tags = list(call.tags or [])
@@ -224,9 +249,6 @@ def login(payload: LoginRequest, db: Annotated[Session, Depends(get_db)]) -> Aut
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
 
-    if user.password_hash is None:
-        user.password_hash = hash_password("justcall")
-
     if not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
 
@@ -276,7 +298,11 @@ def create_prospect(payload: ProspectCreate, user: CurrentUser, db: Annotated[Se
             detail="This phone number is already in the prospect list.",
         )
 
-    prospect = Prospect(user_id=user.id, **payload.model_dump())
+    prospect_data = payload.model_dump()
+    prospect_data["status"] = prospect_data.get("status") or DEFAULT_STATUS_OPTIONS[0]
+    prospect_data["possible_objections"] = prospect_data.get("possible_objections") or []
+    prospect_data["priority_signals"] = prospect_data.get("priority_signals") or []
+    prospect = Prospect(user_id=user.id, **prospect_data)
     db.add(prospect)
     db.commit()
     db.refresh(prospect)
@@ -563,14 +589,19 @@ def send_replay_message(
             prospect_behavior=replay_session.prospect_behavior,
             objection_type=replay_session.objection_type,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    except Exception as exc:
+    except ValueError:
+        ai_text = generate_fallback_replay_reply(
+            seller_message=payload.text,
+            objection_type=replay_session.objection_type,
+            prospect_behavior=replay_session.prospect_behavior,
+        )
+    except Exception:
         logger.exception("Replay generation failed for session %s", replay_session.id)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="AI replay could not generate a client response.",
-        ) from exc
+        ai_text = generate_fallback_replay_reply(
+            seller_message=payload.text,
+            objection_type=replay_session.objection_type,
+            prospect_behavior=replay_session.prospect_behavior,
+        )
 
     replay_session.messages = [
         *messages_for_ai,
@@ -588,8 +619,9 @@ def get_settings(user: CurrentUser, db: Annotated[Session, Depends(get_db)]) -> 
     if settings_row is None:
         settings_row = UserSettings(user_id=user.id)
         db.add(settings_row)
-        db.commit()
-        db.refresh(settings_row)
+    apply_settings_defaults(settings_row)
+    db.commit()
+    db.refresh(settings_row)
     return settings_row
 
 
@@ -602,6 +634,7 @@ def update_settings(
     settings_row = get_settings(user, db)
     for field_name, value in payload.model_dump(exclude_unset=True).items():
         setattr(settings_row, field_name, value)
+    apply_settings_defaults(settings_row)
 
     db.commit()
     db.refresh(settings_row)
@@ -609,11 +642,12 @@ def update_settings(
 
 
 @app.post("/twilio/outbound-calls", response_model=OutboundCallRead, status_code=status.HTTP_201_CREATED)
-def create_outbound_call(payload: OutboundCallCreate) -> OutboundCallRead:
+def create_outbound_call(payload: OutboundCallCreate, user: CurrentUser) -> OutboundCallRead:
     if (
         not settings.twilio_account_sid
         or not settings.twilio_auth_token
         or not settings.twilio_phone_number
+        or not settings.twilio_voice_url
     ):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -298,9 +298,9 @@ class ReplaySessionRead(ReplaySessionBase):
 
 
 class UserSettingsBase(BaseModel):
-    audio_input: str = Field(default="Studio microphone", max_length=120)
-    noise_cleanup: str = Field(default="Soft", max_length=40)
-    microphone_permission: str = Field(default="granted", max_length=40)
+    audio_input: str = Field(default="", max_length=120)
+    noise_cleanup: str = Field(default="", max_length=40)
+    microphone_permission: str = Field(default="", max_length=40)
     notifications: dict[str, bool] = Field(default_factory=dict)
     ai_preferences: dict[str, str] = Field(default_factory=dict)
     integrations: dict[str, str] = Field(default_factory=dict)

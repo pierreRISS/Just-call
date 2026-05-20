@@ -41,6 +41,8 @@ export type CallRecord = {
   id: number
   prospectId: number
   sourceCallId: number | null
+  status: 'planned' | 'in_progress' | 'completed' | 'failed'
+  reviewSource: 'ai' | 'fallback' | 'pending'
   prospectName: string
   company: string
   date: string
@@ -48,6 +50,8 @@ export type CallRecord = {
   score: number
   metrics: Metric[]
   summary: string
+  strengths: string[]
+  improvementFocus: string
   transcriptPreview: string
   tags: string[]
 }

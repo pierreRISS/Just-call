@@ -15,18 +15,15 @@ const sections = computed(() => [
   {
     title: 'Audio settings',
     items: [
-      `Input: ${workspace.settings.audioInput}`,
-      `Noise cleanup: ${workspace.settings.noiseCleanup}`,
-      'Speaker test ready',
-    ],
+      workspace.settings.audioInput ? `Input: ${workspace.settings.audioInput}` : '',
+      workspace.settings.noiseCleanup ? `Noise cleanup: ${workspace.settings.noiseCleanup}` : '',
+    ].filter(Boolean),
   },
   {
     title: 'Microphone',
     items: [
-      `Permission: ${workspace.settings.microphonePermission}`,
-      'Auto gain enabled',
-      'Echo cancellation enabled',
-    ],
+      workspace.settings.microphonePermission ? `Permission: ${workspace.settings.microphonePermission}` : '',
+    ].filter(Boolean),
   },
   {
     title: 'Notifications',
@@ -43,10 +40,10 @@ const sections = computed(() => [
   {
     title: 'Account settings',
     items: [
-      `User: ${workspace.currentUser.displayName}`,
-      `Email: ${workspace.currentUser.email}`,
-      `Role: ${workspace.currentUser.role}`,
-    ],
+      workspace.currentUser.displayName ? `User: ${workspace.currentUser.displayName}` : '',
+      workspace.currentUser.email ? `Email: ${workspace.currentUser.email}` : '',
+      workspace.currentUser.role ? `Role: ${workspace.currentUser.role}` : '',
+    ].filter(Boolean),
   },
 ])
 </script>

@@ -7,6 +7,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PhoneCall,
+  Settings,
   Users,
   type LucideIcon,
 } from 'lucide-vue-next'
@@ -21,6 +22,7 @@ const navItems: Array<{ id: PageId; label: string; icon: LucideIcon }> = [
   { id: 'history', label: 'Calls', icon: PhoneCall },
   { id: 'replay', label: 'Jouer IA', icon: Bot },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ]
 </script>
 

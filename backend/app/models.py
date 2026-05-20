@@ -171,9 +171,9 @@ class UserSettings(Base):
         unique=True,
         index=True,
     )
-    audio_input: Mapped[str] = mapped_column(String(120), nullable=False, default="Studio microphone")
-    noise_cleanup: Mapped[str] = mapped_column(String(40), nullable=False, default="Soft")
-    microphone_permission: Mapped[str] = mapped_column(String(40), nullable=False, default="granted")
+    audio_input: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    noise_cleanup: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    microphone_permission: Mapped[str] = mapped_column(String(40), nullable=False, default="")
     notifications: Mapped[dict[str, bool]] = mapped_column(JSONB, nullable=False, default=dict)
     ai_preferences: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False, default=dict)
     integrations: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False, default=dict)

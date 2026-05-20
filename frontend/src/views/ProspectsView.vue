@@ -29,7 +29,7 @@ function resetForm() {
 }
 
 async function submitProspect() {
-  if (!form.name.trim() || !form.phone.trim() || isSubmitting.value) return
+  if (!form.name.trim() || !form.company.trim() || !form.phone.trim() || isSubmitting.value) return
 
   isSubmitting.value = true
   const didCreate = await workspace.addProspect({
@@ -122,17 +122,17 @@ async function archiveProspect(prospect: Prospect) {
           <form class="grid content-start gap-4 overflow-y-auto p-6" @submit.prevent="submitProspect">
             <label class="grid gap-2 text-sm font-semibold text-stone-650">
               Name
-              <input v-model="form.name" required maxlength="120" class="min-h-12 rounded-2xl border border-stone-200/80 bg-white/62 px-4 text-stone-950 outline-none transition focus:border-stone-300 focus:bg-white" placeholder="Camille Laurent" />
+              <input v-model="form.name" required maxlength="120" class="min-h-12 rounded-2xl border border-stone-200/80 bg-white/62 px-4 text-stone-950 outline-none transition focus:border-stone-300 focus:bg-white" placeholder="Contact name" />
             </label>
 
             <div class="grid gap-4 sm:grid-cols-2">
               <label class="grid gap-2 text-sm font-semibold text-stone-650">
                 Company
-                <input v-model="form.company" maxlength="120" class="min-h-12 rounded-2xl border border-stone-200/80 bg-white/62 px-4 text-stone-950 outline-none transition focus:border-stone-300 focus:bg-white" placeholder="Nestra" />
+                <input v-model="form.company" required maxlength="120" class="min-h-12 rounded-2xl border border-stone-200/80 bg-white/62 px-4 text-stone-950 outline-none transition focus:border-stone-300 focus:bg-white" placeholder="Company" />
               </label>
               <label class="grid gap-2 text-sm font-semibold text-stone-650">
                 Role
-                <input v-model="form.role" maxlength="120" class="min-h-12 rounded-2xl border border-stone-200/80 bg-white/62 px-4 text-stone-950 outline-none transition focus:border-stone-300 focus:bg-white" placeholder="VP Revenue" />
+                <input v-model="form.role" maxlength="120" class="min-h-12 rounded-2xl border border-stone-200/80 bg-white/62 px-4 text-stone-950 outline-none transition focus:border-stone-300 focus:bg-white" placeholder="Role or title" />
               </label>
             </div>
 
@@ -143,7 +143,7 @@ async function archiveProspect(prospect: Prospect) {
               </label>
               <label class="grid gap-2 text-sm font-semibold text-stone-650">
                 Email
-                <input v-model="form.email" maxlength="255" type="email" class="min-h-12 rounded-2xl border border-stone-200/80 bg-white/62 px-4 text-stone-950 outline-none transition focus:border-stone-300 focus:bg-white" placeholder="camille@company.com" />
+                <input v-model="form.email" maxlength="255" type="email" class="min-h-12 rounded-2xl border border-stone-200/80 bg-white/62 px-4 text-stone-950 outline-none transition focus:border-stone-300 focus:bg-white" placeholder="name@company.com" />
               </label>
             </div>
 
@@ -155,7 +155,7 @@ async function archiveProspect(prospect: Prospect) {
             <button
               type="submit"
               class="mt-2 min-h-12 rounded-full bg-stone-950 px-5 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(28,25,23,0.18)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40"
-              :disabled="!form.name.trim() || !form.phone.trim() || isSubmitting"
+              :disabled="!form.name.trim() || !form.company.trim() || !form.phone.trim() || isSubmitting"
             >
               {{ isSubmitting ? 'Adding...' : 'Add prospect' }}
             </button>

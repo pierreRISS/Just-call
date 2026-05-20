@@ -23,7 +23,6 @@ import {
   type BackendSettings,
   type BackendUser,
 } from '../api/client'
-import { aiReview as fallbackAiReview, callRecords as fallbackCalls, metrics, prospects as fallbackProspects } from '../mockData'
 import type {
   AiReview,
   CallRecord,
@@ -51,43 +50,23 @@ const pageTitles: Record<PageId, string> = {
 
 const pageIds: PageId[] = ['home', 'prospects', 'call', 'history', 'replay', 'analytics', 'profile', 'settings']
 
-const fallbackSettings: WorkspaceSettings = {
-  audioInput: 'Studio microphone',
-  noiseCleanup: 'Soft',
-  microphonePermission: 'granted',
-  notifications: {
-    post_call_review: true,
-    follow_up_reminders: true,
-    quiet_mode: true,
-  },
-  aiPreferences: {
-    feedback_tone: 'Encouraging',
-    replay_difficulty: 'Balanced',
-    coaching_style: 'Concise',
-  },
-  integrations: {
-    crm: 'prepared',
-    calendar: 'connected',
-    email: 'ready',
-  },
-  statusOptions: ['New', 'Contacted', 'Engaged', 'Advancing', 'Scheduled', 'Converted', 'Archived'],
+const emptySettings: WorkspaceSettings = {
+  audioInput: '',
+  noiseCleanup: '',
+  microphonePermission: '',
+  notifications: {},
+  aiPreferences: {},
+  integrations: {},
+  statusOptions: [],
 }
 
-const fallbackUser: WorkspaceUser = {
+const signedOutUser: WorkspaceUser = {
   id: 0,
-  email: 'pierre@just-call.local',
-  displayName: 'Pierre Caller',
-  role: 'Senior account executive',
-  initials: 'PC',
+  email: '',
+  displayName: 'Just Call User',
+  role: 'Sales operator',
+  initials: 'JC',
 }
-
-const performanceScorecard: Metric[] = [
-  { id: 'control', label: 'Lead control', score: 86, delta: '+8%' },
-  { id: 'listening', label: 'Listening quality', score: 91, delta: '+4%' },
-  { id: 'confidence', label: 'Confidence', score: 78, delta: '+11%' },
-  { id: 'objections', label: 'Objection handling', score: 83, delta: '+6%' },
-  { id: 'closing', label: 'Closing clarity', score: 74, delta: '+3%' },
-]
 
 function formatDate(value: string | null): string {
   if (!value) return 'No date'
@@ -111,19 +90,19 @@ function mapProspect(payload: BackendProspect): Prospect {
     id: payload.id,
     name: payload.name,
     company: payload.company,
-    role: payload.role || 'Sales contact',
+    role: payload.role || '',
     phone: payload.phone_number,
     email: payload.email || '',
     status: payload.status,
     priority: payload.priority,
     temperature: payload.temperature,
-    context: payload.context || 'No context captured yet.',
-    previousNotes: payload.previous_notes || 'No previous notes yet.',
-    callObjective: payload.call_objective || 'Understand the current sales motion and qualify a useful next step.',
-    possibleObjections: payload.possible_objections.length ? payload.possible_objections : ['No urgency', 'Budget timing'],
-    prioritySignals: payload.priority_signals.length ? payload.priority_signals : ['New prospect'],
-    lastTouch: payload.last_touch || 'No previous touch',
-    lastCall: payload.last_call || (payload.last_called_at ? formatDate(payload.last_called_at) : 'No call yet'),
+    context: payload.context || '',
+    previousNotes: payload.previous_notes || '',
+    callObjective: payload.call_objective || '',
+    possibleObjections: payload.possible_objections,
+    prioritySignals: payload.priority_signals,
+    lastTouch: payload.last_touch || '',
+    lastCall: payload.last_call || (payload.last_called_at ? formatDate(payload.last_called_at) : ''),
   }
 }
 
@@ -156,7 +135,7 @@ function mapAiReview(payload: BackendAiReview | null): AiReview | null {
         delta: metric.delta || '+0%',
         comment: metric.comment,
       }))
-    : buildPerformanceMetrics(payload.global_score)
+    : []
 
   return {
     score: clampScore(payload.global_score),
@@ -171,32 +150,13 @@ function clampScore(score: number): number {
   return Math.max(0, Math.min(100, Math.round(score)))
 }
 
-function averageMetricScore(metricList: Metric[]): number {
-  if (!metricList.length) return 0
-  return clampScore(metricList.reduce((total, metric) => total + metric.score, 0) / metricList.length)
-}
-
-function buildPerformanceMetrics(score: number, sourceScore?: number | null): Metric[] {
-  if (sourceScore == null) return performanceScorecard.map((metric) => ({ ...metric }))
-
-  const lift = Math.max(1, Math.round((score - sourceScore) / 3))
-  return performanceScorecard.map((metric, index) => ({
-    ...metric,
-    score: clampScore(metric.score + lift + (index === 2 ? 2 : 0)),
-    delta: `+${Number(metric.delta.replace(/[+%]/g, '')) + lift}%`,
-  }))
-}
-
 function buildAiReviewFromCall(call: CallRecord): AiReview {
   return {
     score: call.score,
     metrics: call.metrics,
     summary: call.summary,
-    strengths: [
-      'You kept the conversation structured around the prospect context.',
-      'You gave the objection enough room before moving back to value.',
-    ],
-    improvementFocus: 'Make the next step clearer earlier, then confirm it with a short confident close.',
+    strengths: call.strengths,
+    improvementFocus: call.improvementFocus,
   }
 }
 
@@ -211,7 +171,8 @@ function parseSourceCallId(tags: string[]): number | null {
 function mapCall(payload: BackendCall): CallRecord {
   const sourceCallId = parseSourceCallId(payload.tags)
   const rawScore = payload.global_score ?? payload.ai_review?.global_score ?? null
-  const score = rawScore != null ? clampScore(rawScore) : averageMetricScore(performanceScorecard)
+  const score = rawScore != null ? clampScore(rawScore) : 0
+  const review = mapAiReview(payload.ai_review)
   const callMetrics = payload.ai_review?.metrics?.length
     ? payload.ai_review.metrics.map((metric) => ({
         id: metric.id,
@@ -220,45 +181,31 @@ function mapCall(payload: BackendCall): CallRecord {
         delta: metric.delta || '+0%',
         comment: metric.comment,
       }))
-    : buildPerformanceMetrics(score)
+    : []
+  const hasFallbackReview = payload.tags.some((tag) => tag.startsWith('Fallback review:'))
 
   return {
     id: payload.id,
     prospectId: payload.prospect_id ?? 0,
     sourceCallId,
+    status: payload.status,
+    reviewSource: hasFallbackReview ? 'fallback' : payload.ai_review ? 'ai' : 'pending',
     prospectName: payload.prospect_name,
-    company: payload.company || 'Unknown company',
+    company: payload.company || '',
     date: formatDate(payload.started_at || payload.created_at),
     duration: formatDuration(payload.duration_seconds),
     score,
     metrics: callMetrics,
-    summary: payload.ai_summary || payload.ai_review?.summary || 'No AI summary yet.',
-    transcriptPreview: payload.transcript || payload.notes || 'No transcript captured yet.',
+    summary: payload.ai_summary || payload.ai_review?.summary || '',
+    strengths: review?.strengths ?? [],
+    improvementFocus: review?.improvementFocus ?? '',
+    transcriptPreview: payload.transcript || payload.notes || '',
     tags: payload.tags,
   }
 }
 
 function attachReplayComparisons(calls: CallRecord[]): CallRecord[] {
-  const byId = new Map(calls.map((call) => [call.id, call]))
-
-  return calls.map((call) => {
-    const sourceCall = call.sourceCallId ? byId.get(call.sourceCallId) : null
-    if (!sourceCall) return call
-    const metrics = buildPerformanceMetrics(call.score, sourceCall.score)
-    return {
-      ...call,
-      metrics,
-      score: averageMetricScore(metrics),
-    }
-  })
-}
-
-function isDemoReadyProspect(prospect: Prospect): boolean {
-  return prospect.name.trim().includes(' ') && prospect.company.trim().length > 2
-}
-
-function isDemoReadyCall(call: CallRecord): boolean {
-  return call.prospectName.trim().includes(' ') && call.company.trim().length > 2
+  return calls
 }
 
 function mapReplaySession(payload: BackendReplaySession): ReplaySession {
@@ -275,10 +222,6 @@ function mapReplaySession(payload: BackendReplaySession): ReplaySession {
 }
 
 function mapSettings(payload: BackendSettings): WorkspaceSettings {
-  const statusOptions = payload.status_options?.length
-    ? payload.status_options
-    : ['New', 'Contacted', 'Engaged', 'Advancing', 'Scheduled', 'Converted', 'Archived']
-
   return {
     audioInput: payload.audio_input,
     noiseCleanup: payload.noise_cleanup,
@@ -286,7 +229,7 @@ function mapSettings(payload: BackendSettings): WorkspaceSettings {
     notifications: payload.notifications,
     aiPreferences: payload.ai_preferences,
     integrations: payload.integrations,
-    statusOptions,
+    statusOptions: payload.status_options,
   }
 }
 
@@ -296,11 +239,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const isLoading = ref(false)
   const isAuthReady = ref(false)
   const isAuthenticated = ref(false)
-  const currentUser = ref<WorkspaceUser>(fallbackUser)
-  const prospects = ref<Prospect[]>([...fallbackProspects])
-  const callRecords = ref<CallRecord[]>([...fallbackCalls])
+  const currentUser = ref<WorkspaceUser>(signedOutUser)
+  const prospects = ref<Prospect[]>([])
+  const callRecords = ref<CallRecord[]>([])
   const replaySessions = ref<ReplaySession[]>([])
-  const settings = ref<WorkspaceSettings>(fallbackSettings)
+  const settings = ref<WorkspaceSettings>(emptySettings)
   const selectedProspectId = ref(prospects.value[0]?.id ?? 0)
   const selectedCallId = ref(callRecords.value[0]?.id ?? 0)
   const selectedReplaySessionId = ref<number | null>(null)
@@ -308,10 +251,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const selectedQuickAction = ref('Interested')
   const activeBrowserCallId = ref<number | null>(null)
   const activeCallStartedAt = ref<string | null>(null)
-  const callNotes = ref(
-    'Opening: mention current hiring wave.\n\nDiscovery:\n- Ask how managers review outbound calls today\n- Clarify ramp bottleneck\n\nNext step: propose a 20 minute workflow review.',
-  )
-  const aiReview = ref<AiReview>(fallbackAiReview)
+  const callNotes = ref('')
   const toasts = ref<Toast[]>([])
   let toastId = 0
   let isNavigationReady = false
@@ -323,6 +263,27 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const selectedCall = computed(
     () => callRecords.value.find((call) => call.id === selectedCallId.value) ?? callRecords.value[0],
   )
+  const selectedAiReview = computed<AiReview | null>(() => (selectedCall.value ? buildAiReviewFromCall(selectedCall.value) : null))
+  const realCallRecords = computed(() => callRecords.value.filter((call) => !call.sourceCallId && call.status === 'completed'))
+  const performanceMetrics = computed<Metric[]>(() => {
+    const metricMap = new Map<string, { label: string; total: number; count: number }>()
+    realCallRecords.value.forEach((call) => {
+      call.metrics.forEach((metric) => {
+        const current = metricMap.get(metric.id) ?? { label: metric.label, total: 0, count: 0 }
+        current.total += metric.score
+        current.count += 1
+        metricMap.set(metric.id, current)
+      })
+    })
+    return Array.from(metricMap.entries()).map(([id, aggregate]) => {
+      return {
+        id,
+        label: aggregate.label,
+        score: clampScore(aggregate.total / aggregate.count),
+        delta: '+0%',
+      }
+    })
+  })
   const selectedReplaySession = computed(
     () => replaySessions.value.find((session) => session.id === selectedReplaySessionId.value) ?? null,
   )
@@ -336,10 +297,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function writePageToHistory(page: PageId, replace = false) {
     const nextHash = `#/${page}`
     if (window.location.hash === nextHash) return
+    const nextUrl = `${window.location.pathname}${window.location.search}${nextHash}`
     if (replace) {
-      window.history.replaceState({ page }, '', nextHash)
+      window.history.replaceState({ page }, '', nextUrl)
     } else {
-      window.history.pushState({ page }, '', nextHash)
+      window.history.pushState({ page }, '', nextUrl)
     }
   }
 
@@ -368,9 +330,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (isNavigationReady) return
     isNavigationReady = true
     setPage(parsePageFromLocation(), { replace: true })
-    window.addEventListener('hashchange', () => {
+    const syncPageFromBrowser = () => {
       applyPage(parsePageFromLocation())
-    })
+    }
+    window.addEventListener('hashchange', syncPageFromBrowser)
+    window.addEventListener('popstate', syncPageFromBrowser)
   }
 
   function toggleSidebar() {
@@ -391,22 +355,25 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         getSettings(),
       ])
 
-      const mappedProspects = prospectsPayload.map(mapProspect).filter(isDemoReadyProspect)
-      const mappedCalls = attachReplayComparisons(callsPayload.map(mapCall).filter(isDemoReadyCall))
+      const mappedProspects = prospectsPayload.map(mapProspect)
+      const mappedCalls = attachReplayComparisons(callsPayload.map(mapCall))
 
-      prospects.value = mappedProspects.length
-        ? mappedProspects.sort((first, second) => second.id - first.id)
-        : [...fallbackProspects]
-      callRecords.value = mappedCalls.length ? mappedCalls : [...fallbackCalls]
+      prospects.value = mappedProspects.sort((first, second) => second.id - first.id)
+      callRecords.value = mappedCalls
       replaySessions.value = replayPayload.map(mapReplaySession)
       settings.value = mapSettings(settingsPayload)
 
       selectedProspectId.value = prospects.value[0]?.id ?? 0
       selectedCallId.value = callRecords.value[0]?.id ?? 0
       selectedReplaySessionId.value = replaySessions.value[0]?.id ?? null
-      aiReview.value = mapAiReview(callsPayload.find((call) => call.ai_review)?.ai_review ?? null) ?? fallbackAiReview
     } catch (error) {
-      pushToast(error instanceof Error ? error.message : 'Backend unavailable. Using local sample data.', 'error')
+      prospects.value = []
+      callRecords.value = []
+      replaySessions.value = []
+      selectedProspectId.value = 0
+      selectedCallId.value = 0
+      selectedReplaySessionId.value = null
+      pushToast(error instanceof Error ? error.message : 'Backend unavailable.', 'error')
     } finally {
       isLoading.value = false
     }
@@ -456,7 +423,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
     setAuthToken(null)
     isAuthenticated.value = false
-    currentUser.value = fallbackUser
+    currentUser.value = signedOutUser
+    prospects.value = []
+    callRecords.value = []
+    replaySessions.value = []
   }
 
   async function addProspect(payload: {
@@ -470,20 +440,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     try {
       const created = await createProspect({
         name: payload.name.trim(),
-        company: payload.company.trim() || 'Unknown company',
+        company: payload.company.trim(),
         role: payload.role.trim() || null,
         phone_number: payload.phone.trim(),
         email: payload.email.trim() || null,
-        status: settings.value.statusOptions[0] || 'New',
-        priority: 'Medium',
-        temperature: 'Neutral',
         context: payload.context.trim() || null,
-        previous_notes: 'No previous notes yet.',
-        call_objective: 'Understand the current sales motion and qualify a useful next step.',
-        possible_objections: ['No urgency', 'Budget timing', 'Tool overlap'],
-        priority_signals: ['New prospect'],
-        last_touch: 'Added manually',
-        last_call: 'No call yet',
       })
       const prospect = mapProspect(created)
       prospects.value = [prospect, ...prospects.value]
@@ -507,7 +468,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     try {
       const saved = await updateProspect(prospectId, {
         name: next.name,
-        company: next.company || 'Unknown company',
+        company: next.company,
         role: next.role || null,
         phone_number: next.phone,
         email: next.email || null,
@@ -583,14 +544,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     selectProspect(prospect)
     callStage.value = 'prep'
     setPage('call')
-    callNotes.value = `Opening: use ${prospect.company} context.\n\nObjective:\n- ${prospect.callObjective}\n\nWatch for:\n- ${prospect.possibleObjections.join('\n- ')}`
+    const noteSections = [
+      prospect.context ? `Context:\n${prospect.context}` : '',
+      prospect.callObjective ? `Objective:\n- ${prospect.callObjective}` : '',
+      prospect.possibleObjections.length ? `Watch for:\n- ${prospect.possibleObjections.join('\n- ')}` : '',
+    ].filter(Boolean)
+    callNotes.value = noteSections.join('\n\n')
     pushToast(`${prospect.name} prepared.`, 'info')
-  }
-
-  function beginLiveCall() {
-    callStage.value = 'live'
-    activeCallStartedAt.value = new Date().toISOString()
-    pushToast('Live call started.', 'info')
   }
 
   async function beginBrowserCall(recordConsent: boolean): Promise<CallRecord | null> {
@@ -632,7 +592,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const mapped = mapCall(saved)
       callRecords.value = callRecords.value.map((call) => (call.id === mapped.id ? mapped : call))
       selectedCallId.value = mapped.id
-      aiReview.value = mapAiReview(saved.ai_review) ?? buildAiReviewFromCall(mapped)
       activeBrowserCallId.value = null
       callStage.value = 'review'
     } catch {
@@ -656,81 +615,30 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }, 3500)
   }
 
+  async function saveActiveCallNotes(): Promise<boolean> {
+    const callId = activeBrowserCallId.value ?? selectedCall.value?.id
+    if (!callId) return false
+
+    try {
+      const saved = await updateCall(callId, {
+        notes: callNotes.value.trim() || null,
+      })
+      const mapped = mapCall(saved)
+      callRecords.value = callRecords.value.map((call) => (call.id === mapped.id ? mapped : call))
+      pushToast('Notes saved to the call timeline.')
+      return true
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Notes could not be saved.', 'error')
+      return false
+    }
+  }
+
   function buildTranscriptDataFromNotes(notes: string) {
     return notes
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
       .map((text) => ({ speaker: 'caller' as const, text }))
-  }
-
-  async function finishLiveCall(durationSeconds = 0) {
-    const prospect = selectedProspect.value
-    if (!prospect) return
-    const currentCall = selectedCall.value
-    const isReplayCall = Boolean(currentCall?.sourceCallId)
-
-    if (isReplayCall && currentCall) {
-      const completedReplay = {
-        ...currentCall,
-        duration: formatDuration(durationSeconds),
-        summary: 'Replay completed. You practiced the same conversation with stronger control and clearer closing.',
-        transcriptPreview: callNotes.value.trim() || 'Voice-only AI replay completed. Transcript will be attached when voice capture is connected.',
-        tags: currentCall.tags.includes('Completed replay') ? currentCall.tags : ['Completed replay', ...currentCall.tags],
-      }
-
-      callRecords.value = attachReplayComparisons(callRecords.value.map((call) => (call.id === currentCall.id ? completedReplay : call)))
-      aiReview.value = buildAiReviewFromCall(completedReplay)
-      callStage.value = 'review'
-
-      try {
-        const saved = await updateCall(currentCall.id, {
-          status: 'completed',
-          duration_seconds: durationSeconds,
-          transcript: completedReplay.transcriptPreview,
-          transcript_data: buildTranscriptDataFromNotes(completedReplay.transcriptPreview),
-          notes: callNotes.value.trim() || null,
-          ai_summary: completedReplay.summary,
-          global_score: completedReplay.score,
-          tags: completedReplay.tags,
-          ended_at: new Date().toISOString(),
-        })
-        const mapped = attachReplayComparisons([mapCall(saved), ...callRecords.value.filter((call) => call.id !== currentCall.id)])[0]
-        callRecords.value = attachReplayComparisons(callRecords.value.map((call) => (call.id === currentCall.id ? mapped : call)))
-        aiReview.value = buildAiReviewFromCall(mapped)
-      } catch {
-        pushToast('Replay saved locally with mocked AI scores.', 'info')
-      }
-      pushToast('Replay completed. AI scorecard is ready.')
-      return
-    }
-
-    try {
-      const callMetrics = buildPerformanceMetrics(averageMetricScore(performanceScorecard))
-      const callScore = averageMetricScore(callMetrics)
-      const created = await createCall({
-        prospect_id: prospect.id,
-        status: 'completed',
-        quick_action: selectedQuickAction.value,
-        duration_seconds: durationSeconds,
-        notes: callNotes.value.trim() || null,
-        transcript: callNotes.value.trim() || null,
-        transcript_data: buildTranscriptDataFromNotes(callNotes.value),
-        ai_summary: 'Call completed. AI scorecard is ready with five coaching criteria.',
-        global_score: callScore,
-        tags: [selectedQuickAction.value],
-        started_at: activeCallStartedAt.value,
-        ended_at: new Date().toISOString(),
-      })
-      const call = mapCall(created)
-      callRecords.value = attachReplayComparisons([call, ...callRecords.value])
-      selectedCallId.value = call.id
-      aiReview.value = mapAiReview(created.ai_review) ?? buildAiReviewFromCall(call)
-      callStage.value = 'review'
-      pushToast('Call saved. AI review fields are ready.')
-    } catch (error) {
-      pushToast(error instanceof Error ? error.message : 'Call could not be saved.', 'error')
-    }
   }
 
   function prepareReplayCall(call: CallRecord) {
@@ -751,8 +659,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     selectCall(sourceCall)
 
     try {
-      const replayMetrics = buildPerformanceMetrics(clampScore(sourceCall.score + 9), sourceCall.score)
-      const replayScore = averageMetricScore(replayMetrics)
       const replayCreated = await createCall({
         prospect_id: sourceCall.prospectId || null,
         prospect_name: sourceCall.prospectName,
@@ -761,9 +667,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         quick_action: 'AI Replay',
         duration_seconds: 0,
         notes: `AI replay simulation created from call #${sourceCall.id}.`,
-        transcript: 'Voice-only AI replay. Transcript will be attached after the simulated call.',
-        ai_summary: 'AI replay simulation started from the original call so the seller can practice without repeating the same mistakes.',
-        global_score: replayScore,
         tags: ['AI replay', `source_call_id:${sourceCall.id}`, ...(sourceCall.tags.length ? [sourceCall.tags[0]] : [])],
         started_at: new Date().toISOString(),
       })
@@ -774,10 +677,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const created = await createReplaySession({
         call_id: sourceCall.id,
         prospect_id: sourceCall.prospectId || null,
-        difficulty: 'Balanced',
-        objection_type: sourceCall.tags[0] || 'Tool fatigue',
-        prospect_behavior: 'Skeptical but fair',
-        simulation_mode: 'Text replay',
         messages: [],
       })
       const session = mapReplaySession(created)
@@ -788,36 +687,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       callNotes.value = ''
       pushToast('AI simulation started. You speak first.', 'info')
     } catch {
-      const localReplay: CallRecord = {
-        ...sourceCall,
-        id: Date.now(),
-        sourceCallId: sourceCall.id,
-        date: 'Just now',
-        duration: '00:00',
-        score: averageMetricScore(buildPerformanceMetrics(clampScore(sourceCall.score + 9), sourceCall.score)),
-        metrics: buildPerformanceMetrics(clampScore(sourceCall.score + 9), sourceCall.score),
-        summary: 'Local mock replay started from the original call.',
-        transcriptPreview: 'Text AI replay. Transcript will be attached after the simulated call.',
-        tags: ['AI replay', `source_call_id:${sourceCall.id}`],
-      }
-      const localSession: ReplaySession = {
-        id: Date.now() + 1,
-        callId: sourceCall.id,
-        prospectId: sourceCall.prospectId || null,
-        difficulty: 'Balanced',
-        objectionType: sourceCall.tags[0] || 'Tool fatigue',
-        prospectBehavior: 'Skeptical but fair',
-        simulationMode: 'Text replay',
-        messages: [],
-      }
-      callRecords.value = attachReplayComparisons([localReplay, ...callRecords.value])
-      replaySessions.value = [localSession, ...replaySessions.value]
-      selectedCallId.value = localReplay.id
-      selectedReplaySessionId.value = localSession.id
-      callStage.value = 'live'
-      setPage('replay')
-      callNotes.value = ''
-      pushToast('AI simulation started locally. You speak first.', 'info')
+      pushToast('AI simulation could not be started.', 'error')
     }
   }
 
@@ -832,13 +702,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const completedReplay: CallRecord = {
       ...currentCall,
       duration: formatDuration(durationSeconds),
-      summary: 'Replay completed. The new scorecard compares this practice run with the original call.',
       transcriptPreview: transcript,
       tags: currentCall.tags.includes('Completed replay') ? currentCall.tags : ['Completed replay', ...currentCall.tags],
     }
 
+    const previousCalls = [...callRecords.value]
     callRecords.value = attachReplayComparisons(callRecords.value.map((call) => (call.id === currentCall.id ? completedReplay : call)))
-    aiReview.value = buildAiReviewFromCall(completedReplay)
     callStage.value = 'review'
 
     try {
@@ -848,16 +717,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         transcript,
         transcript_data: buildTranscriptDataFromNotes(transcript),
         notes: transcript,
-        ai_summary: completedReplay.summary,
-        global_score: completedReplay.score,
         tags: completedReplay.tags,
         ended_at: new Date().toISOString(),
       })
       const mapped = attachReplayComparisons([mapCall(saved), ...callRecords.value.filter((call) => call.id !== currentCall.id)])[0]
       callRecords.value = attachReplayComparisons(callRecords.value.map((call) => (call.id === currentCall.id ? mapped : call)))
-      aiReview.value = buildAiReviewFromCall(mapped)
     } catch {
-      pushToast('Replay review generated locally.', 'info')
+      callRecords.value = previousCalls
+      pushToast('Replay could not be saved.', 'error')
+      return
     }
     pushToast('Replay complete. Scorecard is ready.')
   }
@@ -889,7 +757,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   return {
     activePage,
     activeBrowserCallId,
-    aiReview,
     callNotes,
     callRecords,
     callStage,
@@ -897,12 +764,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     isAuthReady,
     isAuthenticated,
     isLoading,
-    metrics,
     pageTitle,
+    performanceMetrics,
     prospects,
+    realCallRecords,
     replayMessages,
     replaySessions,
     selectedCall,
+    selectedAiReview,
     selectedProspect,
     selectedReplaySession,
     selectedQuickAction,
@@ -912,12 +781,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     addProspect,
     addStatusOption,
     archiveProspect,
-    beginLiveCall,
     beginBrowserCall,
     completeBrowserCall,
     dismissToast,
     beginReplaySimulation,
-    finishLiveCall,
     finishReplaySimulation,
     failBrowserCall,
     initializeNavigation,
@@ -931,6 +798,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     selectCall,
     selectProspect,
     saveProspect,
+    saveActiveCallNotes,
     setPage,
     signIn,
     signOut,

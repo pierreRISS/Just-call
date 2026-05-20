@@ -103,7 +103,20 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <div v-if="!sourceCalls.length" class="mt-10 rounded-[1.5rem] border border-dashed border-stone-300/70 bg-white/38 px-5 py-10 text-center">
+            <p class="text-sm font-semibold text-stone-500">
+              Aucun appel terminé disponible pour lancer un entraînement IA.
+            </p>
+            <button
+              type="button"
+              class="mt-6 rounded-full bg-stone-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(28,25,23,0.18)] transition hover:-translate-y-0.5"
+              @click="workspace.setPage('prospects')"
+            >
+              Préparer un appel
+            </button>
+          </div>
+
+          <div v-else class="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_20rem]">
             <div>
               <label class="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-stone-400" for="replay-call">
                 Call passé
@@ -240,7 +253,12 @@ onBeforeUnmount(() => {
           </p>
         </div>
 
-        <AiReviewCard :review="workspace.aiReview" :comparison="replayComparison" @replay="workspace.replayCall(workspace.selectedCall)" />
+        <AiReviewCard
+          v-if="workspace.selectedAiReview && workspace.selectedCall"
+          :review="workspace.selectedAiReview"
+          :comparison="replayComparison"
+          @replay="workspace.replayCall(workspace.selectedCall)"
+        />
       </section>
     </Transition>
   </section>

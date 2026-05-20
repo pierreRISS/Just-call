@@ -110,15 +110,23 @@ const comparison = computed(() => {
             <div class="rounded-3xl border border-white/70 bg-white/44 p-5 shadow-[0_18px_60px_rgba(85,68,42,0.07)] backdrop-blur-2xl">
               <p class="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-stone-400">Strengths</p>
               <div class="mt-4 grid gap-3">
-                <p class="rounded-2xl bg-white/55 px-4 py-3 text-sm font-medium leading-6 text-stone-650">You kept control of the conversation without rushing the prospect.</p>
-                <p class="rounded-2xl bg-white/55 px-4 py-3 text-sm font-medium leading-6 text-stone-650">You reflected the business context before moving into the pitch.</p>
+                <p
+                  v-for="strength in call.strengths"
+                  :key="strength"
+                  class="rounded-2xl bg-white/55 px-4 py-3 text-sm font-medium leading-6 text-stone-650"
+                >
+                  {{ strength }}
+                </p>
+                <p v-if="!call.strengths.length" class="rounded-2xl bg-white/55 px-4 py-3 text-sm font-medium leading-6 text-stone-500">
+                  No strengths generated yet.
+                </p>
               </div>
             </div>
 
             <div class="rounded-3xl border border-white/70 bg-white/44 p-5 shadow-[0_18px_60px_rgba(85,68,42,0.07)] backdrop-blur-2xl">
               <p class="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-stone-400">Improvement focus</p>
               <p class="mt-4 rounded-2xl bg-white/55 px-4 py-3 text-sm font-medium leading-6 text-stone-650">
-                Slow down after the first objection and make the next step feel more concrete before closing.
+                {{ call.improvementFocus }}
               </p>
             </div>
           </section>

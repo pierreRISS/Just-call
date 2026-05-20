@@ -57,12 +57,12 @@ const timerLabel = computed(() => {
   return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`
 })
 
-function saveNotes() {
-  workspace.pushToast('Notes saved to the call timeline.')
+async function saveNotes() {
+  await workspace.saveActiveCallNotes()
 }
 
 function replayReview() {
-  workspace.replayCall(workspace.selectedCall)
+  if (workspace.selectedCall) workspace.replayCall(workspace.selectedCall)
 }
 
 async function startVoiceCall() {
@@ -143,7 +143,24 @@ onBeforeUnmount(() => {
 <template>
   <section class="grid gap-6">
     <Transition name="page" mode="out-in">
-      <section v-if="workspace.callStage === 'prep'" key="prep" class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+      <section v-if="!workspace.selectedProspect" key="empty" class="grid gap-6">
+        <LumaSurface class="p-8 text-center">
+          <p class="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-stone-400">Call preparation</p>
+          <h2 class="mt-4 text-4xl font-semibold tracking-[-0.06em] text-stone-950">No prospect selected.</h2>
+          <p class="mx-auto mt-4 max-w-xl text-sm font-medium leading-6 text-stone-500">
+            Add or select a prospect before starting a commercial call.
+          </p>
+          <button
+            type="button"
+            class="mt-8 rounded-full bg-stone-950 px-6 py-3 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(28,25,23,0.18)] transition hover:-translate-y-0.5"
+            @click="workspace.setPage('prospects')"
+          >
+            Open prospects
+          </button>
+        </LumaSurface>
+      </section>
+
+      <section v-else-if="workspace.callStage === 'prep'" key="prep" class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <LumaSurface class="p-6 sm:p-10">
           <div class="max-w-3xl">
             <p class="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-stone-400">Call preparation</p>
@@ -271,7 +288,12 @@ onBeforeUnmount(() => {
           </p>
         </div>
 
-        <AiReviewCard :review="workspace.aiReview" :comparison="replayComparison" @replay="replayReview" />
+        <AiReviewCard
+          v-if="workspace.selectedAiReview"
+          :review="workspace.selectedAiReview"
+          :comparison="replayComparison"
+          @replay="replayReview"
+        />
       </section>
     </Transition>
   </section>

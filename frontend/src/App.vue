@@ -9,6 +9,7 @@ import HomeView from './views/HomeView.vue'
 import AnalyticsView from './views/AnalyticsView.vue'
 import ProfileView from './views/ProfileView.vue'
 import ProspectsView from './views/ProspectsView.vue'
+import SettingsView from './views/SettingsView.vue'
 import LoginView from './views/LoginView.vue'
 import { useWorkspaceStore } from './stores/workspace'
 import type { PageId } from './types'
@@ -21,6 +22,7 @@ const navItems: Array<{ id: PageId; label: string }> = [
   { id: 'history', label: 'Calls' },
   { id: 'replay', label: 'Jouer IA' },
   { id: 'analytics', label: 'Analytics' },
+  { id: 'settings', label: 'Settings' },
 ]
 
 const activeView = computed(() => {
@@ -30,6 +32,7 @@ const activeView = computed(() => {
   if (workspace.activePage === 'history') return CallsHistoryView
   if (workspace.activePage === 'replay') return AiReplayView
   if (workspace.activePage === 'analytics') return AnalyticsView
+  if (workspace.activePage === 'settings') return SettingsView
   return ProfileView
 })
 
