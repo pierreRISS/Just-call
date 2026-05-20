@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { CallRecord, ReplaySession } from '../types'
 import ScoreMetricList from './ScoreMetricList.vue'
+import { buildMetricComparison } from '../utils/callComparison'
 
 const props = defineProps<{
   call: CallRecord | null
@@ -31,15 +32,7 @@ const relatedReplaySessions = computed(() => {
 
 const comparison = computed(() => {
   if (!props.call || !sourceCall.value) return null
-  return props.call.metrics.map((metric) => {
-    const original = sourceCall.value?.metrics.find((item) => item.id === metric.id)
-    return {
-      label: metric.label,
-      original: original?.score ?? 0,
-      replay: metric.score,
-      diff: metric.score - (original?.score ?? 0),
-    }
-  })
+  return buildMetricComparison(props.call, sourceCall.value)
 })
 </script>
 

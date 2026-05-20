@@ -9,6 +9,7 @@ import Waveform from '../components/Waveform.vue'
 import { useMicrophoneLevels } from '../composables/useMicrophoneLevels'
 import { useTwilioVoice } from '../composables/useTwilioVoice'
 import { useWorkspaceStore } from '../stores/workspace'
+import { buildMetricComparison } from '../utils/callComparison'
 
 const workspace = useWorkspaceStore()
 const isProspectOpen = ref(true)
@@ -38,17 +39,7 @@ const reviewCopy = computed(() =>
 const replayComparison = computed(() => {
   if (!isReplayCall.value) return []
   const sourceCall = workspace.callRecords.find((call) => call.id === workspace.selectedCall.sourceCallId)
-  if (!sourceCall) return []
-
-  return workspace.selectedCall.metrics.map((metric) => {
-    const original = sourceCall.metrics.find((item) => item.id === metric.id)
-    return {
-      label: metric.label,
-      original: original?.score ?? 0,
-      replay: metric.score,
-      diff: metric.score - (original?.score ?? 0),
-    }
-  })
+  return buildMetricComparison(workspace.selectedCall, sourceCall)
 })
 
 const timerLabel = computed(() => {

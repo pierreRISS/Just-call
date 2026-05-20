@@ -6,6 +6,7 @@ import ReplayBadge from '../components/ReplayBadge.vue'
 import ScoreMetricList from '../components/ScoreMetricList.vue'
 import Waveform from '../components/Waveform.vue'
 import { useWorkspaceStore } from '../stores/workspace'
+import { buildMetricComparison } from '../utils/callComparison'
 
 const workspace = useWorkspaceStore()
 const selectedMode = computed(() => workspace.selectedReplaySession?.simulationMode ?? 'Text replay')
@@ -23,17 +24,8 @@ const selectedSourceCallId = computed({
   },
 })
 const replayComparison = computed(() => {
-  if (!workspace.selectedCall?.sourceCallId || !selectedSourceCall.value) return []
-
-  return workspace.selectedCall.metrics.map((metric) => {
-    const original = selectedSourceCall.value?.metrics.find((item) => item.id === metric.id)
-    return {
-      label: metric.label,
-      original: original?.score ?? 0,
-      replay: metric.score,
-      diff: metric.score - (original?.score ?? 0),
-    }
-  })
+  if (!workspace.selectedCall?.sourceCallId) return []
+  return buildMetricComparison(workspace.selectedCall, selectedSourceCall.value)
 })
 const draftMessage = ref('')
 const isSending = ref(false)
