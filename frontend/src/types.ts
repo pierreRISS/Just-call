@@ -43,6 +43,7 @@ export type CallRecord = {
   sourceCallId: number | null
   status: 'planned' | 'in_progress' | 'completed' | 'failed'
   reviewSource: 'ai' | 'fallback' | 'pending'
+  quickAction: string
   prospectName: string
   company: string
   date: string

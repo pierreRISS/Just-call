@@ -6,17 +6,21 @@ import { useWorkspaceStore } from '../stores/workspace'
 const workspace = useWorkspaceStore()
 
 const completedCalls = computed(() => workspace.callRecords.filter((call) => call.status === 'completed'))
+const completedSalesCalls = computed(() => completedCalls.value.filter((call) => !call.sourceCallId))
 
-const strongestMetric = computed(() => {
-  const metrics = workspace.performanceMetrics
-  if (!metrics.length) return null
-  return [...metrics].sort((left, right) => right.score - left.score)[0]
+const bookedMeetingCalls = computed(() => completedSalesCalls.value.filter((call) => {
+  const quickAction = call.quickAction.toLowerCase()
+  return quickAction === 'meeting booked' || call.tags.some((tag) => tag.toLowerCase() === 'meeting booked')
+}))
+
+const meetingBookingRate = computed(() => {
+  if (!completedSalesCalls.value.length) return null
+  return Math.round((bookedMeetingCalls.value.length / completedSalesCalls.value.length) * 100)
 })
 
 const performanceSummary = computed(() => {
-  if (!completedCalls.value.length) return 'No reviewed calls yet. Complete a call to build a real performance profile.'
-  if (!strongestMetric.value) return 'Reviewed calls are loaded, but no score metrics are available yet.'
-  return `Your strongest current signal is ${strongestMetric.value.label.toLowerCase()} at ${strongestMetric.value.score}/100.`
+  if (!completedSalesCalls.value.length) return 'No reviewed sales calls yet. Complete a call to track meeting booking rate.'
+  return `Taux de rendez-vous pris: ${meetingBookingRate.value}% (${bookedMeetingCalls.value.length}/${completedSalesCalls.value.length} appels).`
 })
 
 const strengths = computed(() => {
@@ -77,6 +81,10 @@ const settingsSections = computed(() => [
           <p class="mt-4 max-w-2xl text-lg font-medium leading-8 text-stone-700">
             {{ performanceSummary }}
           </p>
+          <div v-if="meetingBookingRate !== null" class="mt-5 flex flex-wrap items-end gap-4">
+            <p class="text-6xl font-semibold tracking-[-0.075em] text-stone-950">{{ meetingBookingRate }}%</p>
+            <p class="pb-2 text-sm font-semibold text-stone-500">rendez-vous pris</p>
+          </div>
         </LumaSurface>
 
         <div class="grid gap-6 md:grid-cols-2">

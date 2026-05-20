@@ -190,6 +190,7 @@ function mapCall(payload: BackendCall): CallRecord {
     sourceCallId,
     status: payload.status,
     reviewSource: hasFallbackReview ? 'fallback' : payload.ai_review ? 'ai' : 'pending',
+    quickAction: payload.quick_action || '',
     prospectName: payload.prospect_name,
     company: payload.company || '',
     date: formatDate(payload.started_at || payload.created_at),
