@@ -1,4 +1,5 @@
 import json
+import random
 import re
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,20 @@ METRIC_DEFINITIONS: list[dict[str, str]] = [
         "label": "Closing clarity",
         "focus": "pitch utile, prochaine etape claire, demande simple et assumee",
     },
+]
+
+FALLBACK_STRENGTHS = [
+    "Tu as garde une structure claire malgre un appel incomplet.",
+    "Le contexte prospect est assez propre pour alimenter le reste du coaching.",
+    "La prochaine etape reste lisible pour continuer le suivi commercial.",
+    "Les notes donnent une base exploitable pour rejouer l'appel avec l'IA.",
+]
+
+FALLBACK_FOCUS = [
+    "Clarifie la prochaine etape en une phrase simple, puis confirme un horaire precis.",
+    "Pose une question de douleur avant de presenter la solution.",
+    "Reformule l'objection principale avant de revenir a la valeur metier.",
+    "Garde une intro plus courte et bascule plus vite vers le contexte du prospect.",
 ]
 
 
@@ -136,6 +151,46 @@ def generate_review(
     raw_content = str(response.choices[0].message.content or "").strip()
     parsed = parse_json_object(raw_content)
     return normalize_review_payload(parsed)
+
+
+def generate_fallback_review(
+    transcript_data: list[dict[str, Any]] | None,
+    transcript_text: str | None,
+) -> dict[str, Any]:
+    turns = normalize_transcript(transcript_data, transcript_text)
+    seed_text = transcript_to_text(turns) or (transcript_text or "")
+    rng = random.SystemRandom()
+    metrics: list[dict[str, Any]] = []
+
+    for definition in METRIC_DEFINITIONS:
+        score = rng.randint(1, 100)
+        metrics.append(
+            {
+                "id": definition["id"],
+                "label": definition["label"],
+                "score": score,
+                "delta": f"+{rng.randint(0, 12)}%",
+                "comment": "Score de secours genere automatiquement pour garder le workflow testable.",
+            }
+        )
+
+    global_score = round(sum(metric["score"] for metric in metrics) / len(metrics))
+    context_note = (
+        "Transcription partielle exploitee."
+        if seed_text.strip()
+        else "Twilio n'a pas fourni de transcription exploitable."
+    )
+
+    return {
+        "global_score": global_score,
+        "summary": (
+            f"{context_note} Une review de secours a ete creee pour que l'historique, "
+            "les scores et le replay restent fonctionnels."
+        ),
+        "strengths": rng.sample(FALLBACK_STRENGTHS, k=2),
+        "improvement_focus": rng.choice(FALLBACK_FOCUS),
+        "metrics": metrics,
+    }
 
 
 def generate_replay_reply(

@@ -182,7 +182,7 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="mt-12 rounded-full bg-stone-950 px-7 py-3 text-sm font-semibold text-white shadow-[0_22px_60px_rgba(28,25,23,0.18)] transition hover:-translate-y-0.5"
-            :disabled="isStartingVoiceCall || voiceConfig?.is_ready === false"
+            :disabled="isStartingVoiceCall"
             @click="startVoiceCall"
           >
             {{ isStartingVoiceCall ? 'Connecting...' : 'Start Call' }}

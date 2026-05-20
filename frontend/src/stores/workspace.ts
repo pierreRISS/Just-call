@@ -209,7 +209,7 @@ function parseSourceCallId(tags: string[]): number | null {
 function mapCall(payload: BackendCall): CallRecord {
   const sourceCallId = parseSourceCallId(payload.tags)
   const rawScore = payload.global_score ?? payload.ai_review?.global_score ?? null
-  const score = rawScore && rawScore >= 20 ? rawScore : averageMetricScore(performanceScorecard)
+  const score = rawScore != null ? clampScore(rawScore) : averageMetricScore(performanceScorecard)
   const callMetrics = payload.ai_review?.metrics?.length
     ? payload.ai_review.metrics.map((metric) => ({
         id: metric.id,
@@ -599,6 +599,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       })
       const mapped = mapCall(saved)
       callRecords.value = callRecords.value.map((call) => (call.id === mapped.id ? mapped : call))
+      selectedCallId.value = mapped.id
+      aiReview.value = mapAiReview(saved.ai_review) ?? buildAiReviewFromCall(mapped)
+      activeBrowserCallId.value = null
+      callStage.value = 'review'
     } catch {
       // Twilio status webhooks may still reconcile this call.
     }

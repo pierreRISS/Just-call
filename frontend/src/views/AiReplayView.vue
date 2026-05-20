@@ -8,13 +8,6 @@ import Waveform from '../components/Waveform.vue'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const workspace = useWorkspaceStore()
-const difficulties = ['Calm', 'Balanced', 'Demanding']
-const objectionTypes = ['Tool fatigue', 'Budget timing', 'Adoption risk', 'No urgency']
-const behaviors = ['Skeptical but fair', 'Busy executive', 'Detail-oriented', 'Quiet founder']
-const modes = ['Discovery', 'Objection practice', 'Closing clarity']
-const selectedDifficulty = computed(() => workspace.selectedReplaySession?.difficulty ?? 'Balanced')
-const selectedObjection = computed(() => workspace.selectedReplaySession?.objectionType ?? selectedSourceCall.value?.tags[0] ?? 'Tool fatigue')
-const selectedBehavior = computed(() => workspace.selectedReplaySession?.prospectBehavior ?? 'Skeptical but fair')
 const selectedMode = computed(() => workspace.selectedReplaySession?.simulationMode ?? 'Text replay')
 const sourceCalls = computed(() => workspace.callRecords.filter((call) => !call.sourceCallId))
 const selectedSourceCall = computed(() => {
@@ -96,7 +89,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="grid gap-6">
     <Transition name="page" mode="out-in">
-      <section v-if="workspace.callStage === 'prep'" key="prep" class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <section v-if="workspace.callStage === 'prep'" key="prep" class="grid gap-6">
         <LumaSurface class="p-6 sm:p-8">
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="max-w-3xl">
@@ -145,7 +138,7 @@ onBeforeUnmount(() => {
 
               <button
                 type="button"
-                class="mt-8 rounded-full bg-stone-950 px-7 py-3 text-sm font-semibold text-white shadow-[0_22px_60px_rgba(28,25,23,0.18)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+                class="mt-8 w-full rounded-full bg-stone-950 px-7 py-3 text-sm font-semibold text-white shadow-[0_22px_60px_rgba(28,25,23,0.18)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
                 :disabled="!selectedSourceCall || isStarting"
                 @click="startSimulation"
               >
@@ -159,26 +152,6 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </LumaSurface>
-
-        <aside class="grid content-start gap-4">
-          <LumaSurface class="p-5" subtle>
-            <p class="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-stone-400">Simulation</p>
-            <div class="mt-4 grid gap-3">
-              <select class="rounded-full border border-white/70 bg-white/60 px-4 py-2 text-sm font-semibold text-stone-650 outline-none backdrop-blur-xl" :value="selectedDifficulty">
-                <option v-for="item in difficulties" :key="item">{{ item }}</option>
-              </select>
-              <select class="rounded-full border border-white/70 bg-white/60 px-4 py-2 text-sm font-semibold text-stone-650 outline-none backdrop-blur-xl" :value="selectedObjection">
-                <option v-for="item in objectionTypes" :key="item">{{ item }}</option>
-              </select>
-              <select class="rounded-full border border-white/70 bg-white/60 px-4 py-2 text-sm font-semibold text-stone-650 outline-none backdrop-blur-xl" :value="selectedBehavior">
-                <option v-for="item in behaviors" :key="item">{{ item }}</option>
-              </select>
-              <select class="rounded-full border border-white/70 bg-white/60 px-4 py-2 text-sm font-semibold text-stone-650 outline-none backdrop-blur-xl" :value="selectedMode">
-                <option v-for="item in modes" :key="item">{{ item }}</option>
-              </select>
-            </div>
-          </LumaSurface>
-        </aside>
       </section>
 
       <section v-else-if="workspace.callStage === 'live'" key="live" class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
