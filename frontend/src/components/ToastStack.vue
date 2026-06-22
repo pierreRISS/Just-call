@@ -10,6 +10,7 @@ defineEmits<{
 }>()
 </script>
 
+
 <template>
   <div class="fixed right-5 top-5 z-50 grid w-[min(24rem,calc(100vw-2.5rem))] gap-2">
     <TransitionGroup name="toast">
